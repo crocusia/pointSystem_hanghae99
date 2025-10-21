@@ -19,6 +19,7 @@ out/
 ### Eclipse ###
 .apt_generated
 .classpath
+
 .factorypath
 .project
 .settings
@@ -40,3 +41,7 @@ bin/
 
 ### Mac OS ###
 .DS_Store
+
+# Claude Code specific files
+CLAUDE.md
+nul
