@@ -157,8 +157,8 @@ public ResponseEntity<ErrorResponse> handleTypeMismatch(
    - 비즈니스 로직 검증
 
 2. **테스트 케이스**:
-   - ✅ 신규 유저 조회 (0 포인트 반환)
-   - ✅ 기존 유저 조회 (현재 잔액 반환)
+   - ✅ 유저 포인트 조회 (레포지토리 반환값 검증)
+     - 신규/기존 유저 구분은 레포지토리 책임이므로 서비스 테스트에서 분리 불필요
 
 3. **제거된 테스트** (Controller에서 검증):
    - ~~음수 ID 테스트~~
@@ -174,35 +174,28 @@ class PointServiceTest {
     @Mock
     private UserPointRepository userPointRepository;
 
-    @InjectMocks
+    @Mock
+    private PointHistoryRepository pointHistoryRepository;
+
     private PointService pointService;
 
-    @Test
-    @DisplayName("신규 유저의 포인트 조회 시 0 포인트를 반환해야 한다")
-    void getUserPoint_WhenUserIsNew_ShouldReturnZeroBalance() {
-       // Given
-       Long userId = 1L;
-       UserPoint emptyUserPoint = new UserPoint(userId, 0, System.currentTimeMillis());
-       // Stub
-       when(userPointRepository.selectById(userId)).thenReturn(emptyUserPoint);
+    private static final long TEST_MAX = 100_000L;
 
-       // When
-       UserPoint result = pointService.getUserPoint(userId);
-
-       // Then
-       assertThat(result.id()).isEqualTo(userId);
-       assertThat(result.point()).isEqualTo(0L);
+    @BeforeEach
+    void setUp() {
+        pointService = new PointService(TEST_MAX, userPointRepository, pointHistoryRepository);
     }
 
     @Test
-    @DisplayName("기존 유저의 포인트 조회 시 현재 잔액을 반환해야 한다")
-    void getUserPoint_WhenUserExists_ShouldReturnCurrentBalance() {
+    @DisplayName("유저 포인트 조회 시 레포지토리에서 조회한 값을 반환해야 한다")
+    void getUserPoint_ShouldReturnUserPointFromRepository() {
         // Given
-        long userId = 2L;
+        long userId = 1L;
         long expectedPoints = 5000L;
         long currentTime = System.currentTimeMillis();
-        UserPoint existingUserPoint = new UserPoint(userId, expectedPoints, currentTime);
-        when(userPointRepository.selectById(userId)).thenReturn(existingUserPoint);
+        UserPoint userPoint = new UserPoint(userId, expectedPoints, currentTime);
+        // Stub
+        when(userPointRepository.selectById(userId)).thenReturn(userPoint);
 
         // When
         UserPoint result = pointService.getUserPoint(userId);
@@ -327,6 +320,7 @@ HTTP Request
 | 3 | Bean Validation 추가 | Controller 레이어 검증 강화 |
 | 4 | ApiControllerAdvice 확장 | 다양한 예외 통합 처리 |
 | 5 | JavaDoc 업데이트 | 현재 구현 상태를 정확히 반영 |
+| 6 | 신규/기존 유저 테스트 통합 | TDD 관점: 서비스는 레포지토리 반환값만 전달, 신규/기존 구분은 레포지토리 책임 |
 
 
 ---
@@ -750,9 +744,9 @@ class PointServiceTest {
 - 테스트 우선 작성
 
 ### 테스트 결과
-- **Phase 1**: 2개 테스트 ✅
+- **Phase 1**: 1개 테스트 ✅
 - **Phase 2**: 3개 테스트 ✅
-- **Total**: 5/5 passing
+- **Total**: 4/4 passing
 
 ---
 

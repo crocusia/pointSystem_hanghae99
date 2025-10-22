@@ -44,41 +44,22 @@ class PointServiceTest {
 
     /**
      * 테스트 설계)
-     * selectById는 새로운 id인 경우 empty를 통해 포인트가 0인 userPoint 객체를 반환함
-     * empty 호출 검증 = 강결합
-     * 따라서 반환값만 검증하도록 테스트 설정
+     * 서비스 관점에서 포인트 조회는 단순히 레포지토리에서 조회한 값을 반환하는 동작임
+     * 신규/기존 유저 구분은 레포지토리의 책임이므로 서비스 테스트에서는 검증 불필요
      *
-     * case 1) 신규 유저 조회 시, 0을 반환하는가
-     * case 2) 기존 유저 조회 시, 현재 잔액을 반환하는가
+     * case 1) 유저 포인트를 정상적으로 조회하고 레포지토리 반환값을 그대로 반환하는가
      */
 
     @Test
-    @DisplayName("신규 유저의 포인트 조회 시 0 포인트를 반환해야 한다")
-    void getUserPoint_WhenUserIsNew_ShouldReturnZeroBalance() {
+    @DisplayName("유저 포인트 조회 시 레포지토리에서 조회한 값을 반환해야 한다")
+    void getUserPoint_ShouldReturnUserPointFromRepository() {
         // Given
-        Long userId = 1L;
-        UserPoint emptyUserPoint = new UserPoint(userId, 0, System.currentTimeMillis());
-        // Stub
-        when(userPointRepository.selectById(userId)).thenReturn(emptyUserPoint);
-
-        // When
-        UserPoint result = pointService.getUserPoint(userId);
-
-        // Then
-        assertThat(result.id()).isEqualTo(userId);
-        assertThat(result.point()).isEqualTo(0L);
-    }
-
-    @Test
-    @DisplayName("기존 유저의 포인트 조회 시 현재 잔액을 반환해야 한다")
-    void getUserPoint_WhenUserExists_ShouldReturnCurrentBalance() {
-        // Given
-        long userId = 2L;
+        long userId = 1L;
         long expectedPoints = 5000L;
         long currentTime = System.currentTimeMillis();
-        UserPoint existingUserPoint = new UserPoint(userId, expectedPoints, currentTime);
+        UserPoint userPoint = new UserPoint(userId, expectedPoints, currentTime);
         // Stub
-        when(userPointRepository.selectById(userId)).thenReturn(existingUserPoint);
+        when(userPointRepository.selectById(userId)).thenReturn(userPoint);
 
         // When
         UserPoint result = pointService.getUserPoint(userId);
@@ -93,10 +74,10 @@ class PointServiceTest {
      * 리팩토링 2) AI가 작성한 "포인트 조회"관련 일부 테스트 코드 삭제
      *
      * @DisplayName("포인트 조회 시 올바른 업데이트 타임스탬프를 반환해야 한다")
-     * 사유) case2를 통해 이미 검증이 된, 중복 테스트이기 때문
+     * 사유) case1을 통해 이미 검증이 된, 중복 테스트이기 때문
      *
      * @DisplayName("여러 유저의 포인트를 독립적으로 조회할 수 있어야 한다")
-     * 사유) case2를 통해 이미 조회 기능이 검증되었기 때문에 필요 없다고 생각함
+     * 사유) case1을 통해 이미 조회 기능이 검증되었기 때문에 필요 없다고 생각함
      */
 
     /**

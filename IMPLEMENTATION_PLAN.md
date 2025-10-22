@@ -18,9 +18,10 @@ Implement a user point management system with the following features:
 **Test Cases:**
 
 *Unit Tests (PointService):*
-- [x] Should return user point with zero balance for new user
-- [x] Should return existing user point with current balance
-- [x] ~~Should return correct updateMillis timestamp~~ (검증됨 - 기존 유저 테스트에 포함)
+- [x] Should return user point from repository (신규/기존 유저 통합 - 레포지토리 책임이므로 서비스에서 구분 불필요)
+- [x] ~~Should return user point with zero balance for new user~~ (통합됨)
+- [x] ~~Should return existing user point with current balance~~ (통합됨)
+- [x] ~~Should return correct updateMillis timestamp~~ (검증됨 - 통합 테스트에 포함)
 - [x] ~~Should handle multiple different users independently~~ (불필요 - 단일 조회로 검증됨)
 - [x] ~~Should reject invalid user IDs~~ (Controller 레이어에서 검증)
 
@@ -65,7 +66,7 @@ Controller (검증) → Service (로직) → Repository (데이터) → Table (�
 - **Service Layer**: 비즈니스 로직에만 집중 (검증 제거)
 
 *Test Results:*
-- ✅ 2 unit tests passing
+- ✅ 1 unit test passing (신규/기존 유저 통합)
 - ✅ Mock을 활용한 격리된 테스트
 - ✅ Given-When-Then 패턴 적용
 
@@ -253,9 +254,8 @@ Controller (@Positive) → Service (비즈니스 로직) → Repository (인터�
 - [x] 강결합 회피 (결과 검증, 구현 세부사항 회피)
 
 **Implemented:**
-- `PointServiceTest.java` - 2개 테스트 작성
-  - 신규 유저 조회 (0 포인트)
-  - 기존 유저 조회 (잔액 있음)
+- `PointServiceTest.java` - 1개 테스트 작성
+  - 유저 포인트 조회 (레포지토리 반환값 검증 - 신규/기존 구분은 레포지토리 책임)
 
 ### Integration Tests:
 - [ ] Test full flow from controller to database tables
@@ -325,7 +325,7 @@ class PointControllerTest {
   - `PointController.java`
   - `UserPointTable.java`
   - `ApiControllerAdvice.java`
-- **Tests**: 2/2 passing
+- **Tests**: 1/1 passing (포인트 조회)
 - **Architecture**: Controller → Service → Repository → Table
 - **Validation**: Controller 레이어 Bean Validation 적용
 
@@ -339,7 +339,7 @@ class PointControllerTest {
   - `ErrorCode.java` (POINT_OVERFLOW 추가)
   - `application.yml` (point.max-balance 추가)
   - `PointServiceTest.java` (3개 테스트 추가)
-- **Tests**: 5/5 passing (Phase 1: 2개, Phase 2: 3개)
+- **Tests**: 4/4 passing (Phase 1: 1개, Phase 2: 3개)
 - **New Features**:
   - 포인트 충전 기능
   - 최대 포인트 제한 (외부 설정)
