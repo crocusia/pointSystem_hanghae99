@@ -12,23 +12,62 @@ Implement a user point management system with the following features:
 
 ## Implementation Strategy
 
-### Phase 1: Point Inquiry Feature
+### Phase 1: Point Inquiry Feature ✅ COMPLETED
 **Goal:** Implement `GET /point/{id}` endpoint to retrieve user points
 
 **Test Cases:**
-- [ ] Should return user point with zero balance for new user
-- [ ] Should return existing user point with current balance
-- [ ] Should return correct updateMillis timestamp
+
+*Unit Tests (PointService):*
+- [x] Should return user point with zero balance for new user
+- [x] Should return existing user point with current balance
+- [x] ~~Should return correct updateMillis timestamp~~ (검증됨 - 기존 유저 테스트에 포함)
+- [x] ~~Should handle multiple different users independently~~ (불필요 - 단일 조회로 검증됨)
+- [x] ~~Should reject invalid user IDs~~ (Controller 레이어에서 검증)
 
 **Implementation Steps:**
-1. Create `PointService` class
-2. Implement `getUserPoint(long userId)` method
-3. Wire service to `PointController.point()` method
-4. Verify all tests pass
+1. [x] Create `PointService` class
+2. [x] Implement `getUserPoint(long userId)` method
+3. [x] Wire service to `PointController.point()` method
+4. [x] Verify all tests pass
 
 **Business Rules:**
 - New users start with 0 points
 - Must return current point balance and last update time
+- User ID must be positive (> 0)
+- Invalid user IDs validated at Controller layer with `@Positive`
+
+**Implementation Details:**
+
+*Architecture:*
+```java
+Controller (검증) → Service (로직) → Repository (데이터) → Table (저장소)
+```
+
+*Files Created/Modified:*
+- ✅ `PointService.java` - 비즈니스 로직 구현
+- ✅ `UserPointRepository.java` - 인터페이스 생성 (DIP 적용)
+- ✅ `UserPointTable.java` - 인터페이스 구현
+- ✅ `PointController.java` - `@Positive` validation 추가
+- ✅ `PointServiceTest.java` - 단위 테스트 작성
+
+*Exception Handling:*
+- ✅ `ErrorCode.java` - enum으로 에러 코드 중앙 관리
+- ✅ `UserException.java` - ErrorCode 기반 예외 클래스
+- ✅ `ApiControllerAdvice.java` - 통합 예외 처리
+  - `UserException` 핸들러
+  - `ConstraintViolationException` 핸들러 (@Positive 위반)
+  - `MethodArgumentTypeMismatchException` 핸들러 (타입 불일치)
+
+*Validation Strategy:*
+- **Controller Layer**: `@Validated` + `@Positive`
+  - null, 타입, 양수 검증
+  - Long 오버플로우, 소수점 입력 처리
+- **Service Layer**: 비즈니스 로직에만 집중 (검증 제거)
+
+*Test Results:*
+- ✅ 2 unit tests passing
+- ✅ Mock을 활용한 격리된 테스트
+- ✅ Given-When-Then 패턴 적용
 
 ---
 
@@ -137,39 +176,77 @@ Implement a user point management system with the following features:
 
 ## Exception Handling Strategy
 
-### Custom Exceptions to Implement:
-- `InvalidAmountException` - For negative or zero amounts
-- `InsufficientPointsException` - For insufficient balance during usage
-- `PointNotFoundException` - If needed for missing user points (optional)
+### Implemented Exception Structure:
 
-### Error Response Mapping:
-- Invalid amount → 400 Bad Request
-- Insufficient points → 400 Bad Request
-- General errors → 500 Internal Server Error (existing)
+**ErrorCode Enum** (중앙 관리):
+- [x] `INVALID_USER_ID` - 유효하지 않은 유저 ID (양수 아님)
+- [x] `VALIDATION_ERROR` - Bean Validation 제약 위반
+- [x] `TYPE_MISMATCH` - 타입 불일치 (오버플로우, 소수점 등)
+- [ ] `INVALID_AMOUNT` - 금액 검증 실패 (음수, 0 등)
+- [ ] `INSUFFICIENT_POINTS` - 잔액 부족
 
-### Implementation:
-1. Create custom exception classes
-2. Add specific `@ExceptionHandler` methods in `ApiControllerAdvice`
-3. Return appropriate HTTP status codes and error messages
+**Exception Classes**:
+- [x] `UserException` - ErrorCode 기반 비즈니스 예외
+- [x] ~~`InvalidUserIdException`~~ (UserException으로 통합)
+
+**ApiControllerAdvice Handlers**:
+- [x] `UserException` → ErrorCode의 HTTP 상태 코드 + 메시지
+- [x] `ConstraintViolationException` → 400 Bad Request
+- [x] `MethodArgumentTypeMismatchException` → 400 Bad Request
+- [x] `Exception` (fallback) → 500 Internal Server Error
+
+### Error Response Format:
+```json
+{
+  "code": "INVALID_USER_ID",
+  "message": "User ID must be positive"
+}
+```
+
+### Implementation Status:
+1. [x] ErrorCode enum 생성 및 확장 가능한 구조
+2. [x] UserException 기반 통합 예외 클래스
+3. [x] ApiControllerAdvice에 핸들러 추가
+4. [x] Controller 레이어 Bean Validation 적용
+5. [ ] 포인트 충전/사용 관련 ErrorCode 추가 예정
 
 ---
 
 ## Testing Strategy
 
-### Unit Tests:
-- Test `PointService` methods in isolation
-- Mock `UserPointTable` and `PointHistoryTable` dependencies
-- Focus on business logic and validation
+### Unit Tests (PointService):
+- [x] Test methods in isolation using Mockito
+- [x] Mock `UserPointRepository` dependency
+- [x] Focus on business logic verification
+- [x] Given-When-Then 패턴 적용
+- [x] 강결합 회피 (결과 검증, 구현 세부사항 회피)
+
+**Implemented:**
+- `PointServiceTest.java` - 2개 테스트 작성
+  - 신규 유저 조회 (0 포인트)
+  - 기존 유저 조회 (잔액 있음)
 
 ### Integration Tests:
-- Test full flow from controller to database tables
-- Use actual `UserPointTable` and `PointHistoryTable` instances
-- Verify end-to-end behavior
+- [ ] Test full flow from controller to database tables
+- [ ] Use `@WebMvcTest` for controller layer testing
+- [ ] Verify Bean Validation works correctly
+- [ ] Test error response format
+
+**Recommended:**
+```java
+@WebMvcTest(PointController.class)
+class PointControllerTest {
+    @Test
+    void point_WithInvalidId_ShouldReturn400() {
+        // Validate @Positive constraint
+    }
+}
+```
 
 ### Concurrency Tests:
-- Use `ExecutorService` to simulate concurrent requests
-- Verify final state consistency
-- Test with multiple threads accessing same user
+- [ ] Use `ExecutorService` to simulate concurrent requests
+- [ ] Verify final state consistency
+- [ ] Test with multiple threads accessing same user
 
 ---
 
@@ -179,33 +256,101 @@ Implement a user point management system with the following features:
 - [x] Repository structure analyzed
 - [x] CLAUDE.md created
 - [x] IMPLEMENTATION_PLAN.md created
-- [ ] Initial test structure created
+- [x] Initial test structure created
+- [x] DEV_LOG.md created
 
 ### Implementation Order:
-1. [ ] Phase 1: Point Inquiry
+1. [x] **Phase 1: Point Inquiry** ✅ COMPLETED (2025-10-22)
+   - [x] PointService 구현
+   - [x] UserPointRepository 인터페이스 생성
+   - [x] Controller validation 추가
+   - [x] 단위 테스트 작성 (2개)
+   - [x] ErrorCode enum 구조 구축
+   - [x] ApiControllerAdvice 통합 예외 처리
+
 2. [ ] Phase 2: Point Charging
 3. [ ] Phase 3: Point Usage
 4. [ ] Phase 4: Point History Inquiry
 5. [ ] Phase 5: Concurrency & Thread Safety
-6. [ ] Exception Handling
+6. [x] Exception Handling (Phase 1에서 기반 구축 완료)
 7. [ ] Final integration testing
 8. [ ] Code coverage verification
+
+### Phase 1 Completion Summary:
+- **Files Created**: 5개
+  - `PointService.java`
+  - `UserPointRepository.java`
+  - `ErrorCode.java`
+  - `UserException.java`
+  - `PointServiceTest.java`
+- **Files Modified**: 3개
+  - `PointController.java`
+  - `UserPointTable.java`
+  - `ApiControllerAdvice.java`
+- **Tests**: 2/2 passing
+- **Architecture**: Controller → Service → Repository → Table
+- **Validation**: Controller 레이어 Bean Validation 적용
 
 ---
 
 ## Notes & Considerations
 
 ### Design Decisions:
-- **Service Layer:** Implement `PointService` to separate business logic from controller
-- **Transaction Management:** Since using in-memory tables without real transactions, implement manual rollback logic if needed
-- **Validation:** Perform all validation in service layer before database operations
-- **Thread Safety:** Implement user-level locking to handle concurrent operations
+- [x] **Service Layer:** `PointService` 구현으로 비즈니스 로직과 컨트롤러 분리
+- [x] **Validation Strategy:** Controller 레이어에서 입력 검증, Service는 비즈니스 로직에 집중
+  - Controller: `@Validated` + `@Positive` (null, 타입, 양수 검증)
+  - Service: 검증된 데이터만 처리
+- [x] **Dependency Inversion:** UserPointRepository 인터페이스로 추상화
+- [ ] **Transaction Management:** 향후 in-memory 테이블 일관성 관리 필요
+- [ ] **Thread Safety:** 사용자별 락킹으로 동시성 처리 예정
+
+### Lessons Learned (Phase 1):
+
+**1. 검증 레이어 분리의 중요성**
+- Controller에서 입력 검증 → Service에서 비즈니스 로직
+- 중복 검증 제거로 코드 단순화
+- Bean Validation 활용으로 선언적 검증
+
+**2. ErrorCode Enum 패턴의 효과**
+- 에러 코드, HTTP 상태, 메시지 중앙 관리
+- `errorCode.name()` 활용으로 명확한 에러 식별
+- 확장 가능한 구조 (새 에러 타입 추가 용이)
+
+**3. 인터페이스 기반 설계**
+- Repository 인터페이스로 테스트 용이성 향상
+- Mock 활용 가능
+- 향후 구현체 교체 가능
+
+**4. 테스트 설계 철학**
+- 구현 세부사항이 아닌 결과 검증
+- 강결합 회피 (예: empty() 호출 검증 X, 반환값 검증 O)
+- Given-When-Then 패턴으로 명확한 의도 전달
 
 ### Potential Issues:
 - In-memory tables have simulated latency (200-300ms) - tests will be slower
 - No real database transactions - need manual consistency management
 - HashMap/ArrayList are not thread-safe - need synchronization
 - No persistence - data lost on restart (acceptable for practice project)
+
+### Improvements for Next Phases:
+
+**1. Controller 통합 테스트 추가**
+```java
+@WebMvcTest(PointController.class)
+class PointControllerTest {
+    // Bean Validation 동작 확인
+    // 에러 응답 형식 검증
+}
+```
+
+**2. 포인트 충전/사용 시 적용할 패턴**
+- Controller validation: `@Positive` for amount
+- ErrorCode 확장: `INVALID_AMOUNT`, `INSUFFICIENT_POINTS`
+- Service layer: 잔액 검증, 트랜잭션 관리
+
+**3. 동시성 처리 전략**
+- 사용자별 락 (ConcurrentHashMap<Long, Lock>)
+- 원자적 읽기-검증-업데이트 보장
 
 ### Future Enhancements (Out of Scope):
 - Maximum point limits
@@ -214,3 +359,7 @@ Implement a user point management system with the following features:
 - Point expiration
 - Real database integration
 - Caching layer
+
+### References:
+- 상세 구현 과정: `DEV_LOG.md` 참조
+- 프로젝트 가이드: `CLAUDE.md` 참조
