@@ -6,11 +6,8 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.http.HttpStatus;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import static org.assertj.core.api.Assertions.catchThrowableOfType;
 import static org.mockito.Mockito.when;
 
 /**
@@ -45,8 +42,8 @@ class PointServiceTest {
     @DisplayName("신규 유저의 포인트 조회 시 0 포인트를 반환해야 한다")
     void getUserPoint_WhenUserIsNew_ShouldReturnZeroBalance() {
         // Given
-        long userId = 1L;
-        UserPoint emptyUserPoint = UserPoint.empty(userId);
+        Long userId = 1L;
+        UserPoint emptyUserPoint = new UserPoint(userId, 0, System.currentTimeMillis());
         // Stub
         when(userPointRepository.selectById(userId)).thenReturn(emptyUserPoint);
 
@@ -97,7 +94,5 @@ class PointServiceTest {
      * 2. 예외 메시지가 하드 코딩된 부분을 개선하기 위해 enum으로 에러 코드 관리
      * 3. ApiControllerAdvice에 관련 예외 핸들러 추가
      */
-
-
 
 }

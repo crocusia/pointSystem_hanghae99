@@ -180,17 +180,18 @@ class PointServiceTest {
     @Test
     @DisplayName("신규 유저의 포인트 조회 시 0 포인트를 반환해야 한다")
     void getUserPoint_WhenUserIsNew_ShouldReturnZeroBalance() {
-        // Given
-        long userId = 1L;
-        UserPoint emptyUserPoint = UserPoint.empty(userId);
-        when(userPointRepository.selectById(userId)).thenReturn(emptyUserPoint);
+       // Given
+       Long userId = 1L;
+       UserPoint emptyUserPoint = new UserPoint(userId, 0, System.currentTimeMillis());
+       // Stub
+       when(userPointRepository.selectById(userId)).thenReturn(emptyUserPoint);
 
-        // When
-        UserPoint result = pointService.getUserPoint(userId);
+       // When
+       UserPoint result = pointService.getUserPoint(userId);
 
-        // Then
-        assertThat(result.id()).isEqualTo(userId);
-        assertThat(result.point()).isEqualTo(0L);
+       // Then
+       assertThat(result.id()).isEqualTo(userId);
+       assertThat(result.point()).isEqualTo(0L);
     }
 
     @Test
