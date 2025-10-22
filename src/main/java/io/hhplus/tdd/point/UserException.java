@@ -1,5 +1,6 @@
 package io.hhplus.tdd.point;
 
+import java.text.MessageFormat;
 import lombok.Getter;
 
 /**
@@ -32,6 +33,11 @@ public class UserException extends RuntimeException {
      */
     public UserException(ErrorCode errorCode) {
         super(errorCode.getMessage());
+        this.errorCode = errorCode;
+    }
+
+    public UserException(ErrorCode errorCode, Object... args) {
+        super(MessageFormat.format(errorCode.getMessage(), args));
         this.errorCode = errorCode;
     }
 }

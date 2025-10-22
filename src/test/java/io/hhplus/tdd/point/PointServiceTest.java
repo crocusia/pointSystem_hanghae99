@@ -1,14 +1,19 @@
 package io.hhplus.tdd.point;
 
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import io.hhplus.tdd.database.PointHistoryTable;
+
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.Mockito.when;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.*;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.eq;
 
 /**
  * Phase 1: Point Inquiry Feature - Unit Tests
@@ -25,8 +30,17 @@ class PointServiceTest {
     @Mock
     private UserPointRepository userPointRepository;
 
-    @InjectMocks
+    @Mock
+    private PointHistoryRepository pointHistoryRepository;
+
     private PointService pointService;
+
+    private static final long TEST_MAX = 100_000L;
+
+    @BeforeEach
+    void setUp() {
+        pointService = new PointService(TEST_MAX, userPointRepository, pointHistoryRepository);
+    }
 
     /**
      * 테스트 설계)
@@ -95,4 +109,125 @@ class PointServiceTest {
      * 3. ApiControllerAdvice에 관련 예외 핸들러 추가
      */
 
+    /**
+     * ========================================
+     * Phase 2: Point Charge Feature - Unit Tests
+     * TDD Red Stage - Tests for chargePoint method
+     * ========================================
+     */
+
+    /**
+     * 테스트 설계)
+     * 서비스 코드의 포인트 충전에서 사용되는 중요 기능 중심 검증
+     * case 1) 잔액 증가, history 생성
+     */
+    @Test
+    @DisplayName("충전 성공 시, 잔액이 증가하고 CHARGE 타입 거래 내역이 생성되어야 한다")
+    void chargeSuccess_IncreasesBalanceAndCreatesHistory() {
+        // Given
+        long userId = 1L;
+        long currentBalance = 5000L;
+        long chargeAmount = 1000L;
+        long expectedBalance = 6000L;
+
+        UserPoint currentPoint = new UserPoint(userId, currentBalance, System.currentTimeMillis());
+        UserPoint updatedPoint = new UserPoint(userId, expectedBalance, System.currentTimeMillis());
+        //잔액 증가 Stub
+        when(userPointRepository.selectById(userId)).thenReturn(currentPoint);
+        when(userPointRepository.insertOrUpdate(userId, expectedBalance)).thenReturn(updatedPoint);
+
+        //거래 내역 생성 Stub
+        PointHistory expectedHistory = new PointHistory(1L, userId, chargeAmount, TransactionType.CHARGE, System.currentTimeMillis());
+        when(pointHistoryRepository.insert(eq(userId), eq(chargeAmount), eq(TransactionType.CHARGE), anyLong()))
+            .thenReturn(expectedHistory);
+
+        // When
+        UserPoint result = pointService.chargePoint(userId, chargeAmount);
+
+        // Then
+        //잔액 증가
+        assertThat(result.id()).isEqualTo(userId);
+        assertThat(result.point()).isEqualTo(expectedBalance);
+        assertThat(result.updateMillis()).isEqualTo(updatedPoint.updateMillis());
+
+        //거래 내역 생성
+        verify(pointHistoryRepository, times(1)).insert(
+            eq(userId),
+            eq(chargeAmount),
+            eq(TransactionType.CHARGE),
+            anyLong()
+        );
+    }
+
+    /**
+     * 테스트 설계)
+     * 충전하고자 하는 금액이 오버플로우가 아니어도, 기존 잔액 + 충전 금액의 합이 오버플로우가 될 수 있음
+     * 최대값을 설정하고 이에 대해 경계값 테스트 수행
+     * Long.MAX_VALUE에 대해서 테스트하려고 했지만 값이 불필요하게 큰 것 같아 적절한 최대값 설정으로 대체
+     *
+     * case 2) 두 값의 합이 최대값 초과 시, 실패
+     * case 3) 두 값의 합이 최대값과 동일한 경우, 성공
+     */
+
+    /**
+     * 리팩토링 1)
+     * 사용자 편의성을 위해 에러코드 메시지에 현재 잔액 기준, 최대 충전 가능 금액 명시
+     */
+    @Test
+    @DisplayName("잔액과 충전 금액의 합이 최대값을 초과하면 예외가 발생하고, 충전 가능 금액이 메시지에 포함되어야 한다")
+    void chargePoint_WhenOverflow_ShouldThrowExceptionWithMaxChargeableAmount() {
+        // Given
+        long userId = 1L;
+        long currentBalance = TEST_MAX - 1L;
+        long chargeAmount = 2L;
+        long expectedMaxChargeable = 1L;
+
+        UserPoint currentPoint = new UserPoint(userId, currentBalance, System.currentTimeMillis());
+        when(userPointRepository.selectById(userId)).thenReturn(currentPoint);
+
+        // When & Then
+        assertThatThrownBy(() -> pointService.chargePoint(userId, chargeAmount))
+                .isInstanceOf(UserException.class)
+                .hasFieldOrPropertyWithValue("errorCode", ErrorCode.POINT_OVERFLOW)
+                .hasMessageContaining(String.valueOf(expectedMaxChargeable));
+    }
+
+    /**
+     * 리팩토링 2)
+     * 전역 변수였던 MAX_POINT_BALANCE를 Teatable Code를 위해 @value 기반 매개변수화
+     */
+    @Test
+    @DisplayName("잔액과 충전 금액의 합이 최대값과 같으면 충전에 성공한다")
+    void chargePoint_WhenSumEqualsMaxBalance_ShouldSucceed() {
+        // Given
+        long userId = 1L;
+        long currentBalance = TEST_MAX - 1L;
+        long chargeAmount = 1L;
+        long expectedBalance = TEST_MAX;
+
+        UserPoint currentPoint = new UserPoint(userId, currentBalance, System.currentTimeMillis());
+        UserPoint updatedPoint = new UserPoint(userId, expectedBalance, System.currentTimeMillis());
+
+        when(userPointRepository.selectById(userId)).thenReturn(currentPoint);
+        when(userPointRepository.insertOrUpdate(userId, expectedBalance)).thenReturn(updatedPoint);
+
+        PointHistory expectedHistory = new PointHistory(1L, userId, chargeAmount, TransactionType.CHARGE, System.currentTimeMillis());
+        when(pointHistoryRepository.insert(eq(userId), eq(chargeAmount), eq(TransactionType.CHARGE), anyLong()))
+                .thenReturn(expectedHistory);
+
+        // When
+        UserPoint result = pointService.chargePoint(userId, chargeAmount);
+
+        // Then
+        assertThat(result.id()).isEqualTo(userId);
+        assertThat(result.point()).isEqualTo(TEST_MAX);
+        verify(pointHistoryRepository, times(1)).insert(
+                eq(userId),
+                eq(chargeAmount),
+                eq(TransactionType.CHARGE),
+                anyLong()
+        );
+    }
+
+    //추후 실제 DB 사용 시, DB 기반 원자성 검증 필요
 }

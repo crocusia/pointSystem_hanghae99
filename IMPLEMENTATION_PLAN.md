@@ -71,30 +71,61 @@ Controller (검증) → Service (로직) → Repository (데이터) → Table (�
 
 ---
 
-### Phase 2: Point Charging Feature
+### Phase 2: Point Charging Feature ✅ COMPLETED
 **Goal:** Implement `PATCH /point/{id}/charge` endpoint to add points to user account
 
 **Test Cases:**
-- [ ] Should successfully charge valid positive amount
-- [ ] Should update user point balance correctly
-- [ ] Should record CHARGE transaction in history
-- [ ] Should reject negative or zero amounts
-- [ ] Should reject amounts exceeding maximum allowed (if applicable)
-- [ ] Should handle concurrent charge requests safely
+
+*Unit Tests (PointService):*
+- [x] Should successfully charge and create CHARGE history (통합 테스트)
+- [x] Should throw exception when sum exceeds max balance (with chargeable amount in message)
+- [x] Should succeed when sum equals max balance (경계값 테스트)
 
 **Implementation Steps:**
-1. Implement `chargePoint(long userId, long amount)` in `PointService`
-2. Add input validation (amount > 0)
-3. Update user point balance using `UserPointTable`
-4. Record transaction in `PointHistoryTable` with type CHARGE
-5. Wire service to `PointController.charge()` method
-6. Verify all tests pass
+1. [x] Create `PointHistoryRepository` interface (Phase 1 패턴 적용)
+2. [x] Implement `chargePoint(long userId, long amount)` in `PointService`
+3. [x] Add overflow validation (maxPointBalance 기반)
+4. [x] Update user point balance using `UserPointRepository`
+5. [x] Record transaction in `PointHistoryRepository` with type CHARGE
+6. [x] Wire service to `PointController.charge()` method
+7. [x] Verify all tests pass
 
 **Business Rules:**
-- Amount must be positive (> 0)
+- Amount must be positive (> 0) - Controller 레이어에서 `@Positive` 검증
+- Maximum point balance: configurable via `application.yml` (point.max-balance)
 - Must atomically update balance and create history record
 - Transaction type must be CHARGE
-- Maximum charge amount: TBD (consider adding limit)
+- Overflow validation: currentBalance + amount ≤ maxPointBalance
+- On overflow: throw POINT_OVERFLOW exception with max chargeable amount
+
+**Implementation Details:**
+
+*Architecture:*
+```java
+Controller (@Positive) → Service (비즈니스 로직) → Repository (인터페이스) → Table (저장소)
+```
+
+*Files Created/Modified:*
+- ✅ `PointHistoryRepository.java` - 인터페이스 생성 (DIP 적용)
+- ✅ `PointHistoryTable.java` - 인터페이스 구현
+- ✅ `PointService.java` - chargePoint() 메서드 구현
+  - validateMaxPoint() private 메서드 추출
+  - @Value로 maxPointBalance 주입
+- ✅ `PointController.java` - charge() 엔드포인트 구현 (사용자 수정)
+- ✅ `ErrorCode.java` - POINT_OVERFLOW 추가
+- ✅ `application.yml` - point.max-balance 설정 추가 (100,000)
+- ✅ `PointServiceTest.java` - 3개 테스트 작성
+
+*Key Features:*
+- ✅ 외부 설정을 통한 최대 포인트 제한 (application.yml)
+- ✅ 경계값 테스트 (TEST_MAX 활용)
+- ✅ 오버플로우 방지 및 사용자 친화적 에러 메시지
+- ✅ 거래 내역 자동 기록
+
+*Test Results:*
+- ✅ 5개 테스트 통과 (Phase 1: 2개, Phase 2: 3개)
+- ✅ Mock 기반 격리된 단위 테스트
+- ✅ Given-When-Then 패턴 적용
 
 ---
 
@@ -268,11 +299,18 @@ class PointControllerTest {
    - [x] ErrorCode enum 구조 구축
    - [x] ApiControllerAdvice 통합 예외 처리
 
-2. [ ] Phase 2: Point Charging
+2. [x] **Phase 2: Point Charging** ✅ COMPLETED (2025-10-23)
+   - [x] PointHistoryRepository 인터페이스 생성
+   - [x] chargePoint() 메서드 구현
+   - [x] Overflow 검증 로직 추가
+   - [x] 외부 설정 (application.yml) 연동
+   - [x] 단위 테스트 작성 (3개)
+   - [x] ErrorCode.POINT_OVERFLOW 추가
+
 3. [ ] Phase 3: Point Usage
 4. [ ] Phase 4: Point History Inquiry
 5. [ ] Phase 5: Concurrency & Thread Safety
-6. [x] Exception Handling (Phase 1에서 기반 구축 완료)
+6. [x] Exception Handling (Phase 1-2에서 구축 완료)
 7. [ ] Final integration testing
 8. [ ] Code coverage verification
 
@@ -290,6 +328,23 @@ class PointControllerTest {
 - **Tests**: 2/2 passing
 - **Architecture**: Controller → Service → Repository → Table
 - **Validation**: Controller 레이어 Bean Validation 적용
+
+### Phase 2 Completion Summary:
+- **Files Created**: 1개
+  - `PointHistoryRepository.java`
+- **Files Modified**: 5개
+  - `PointService.java` (chargePoint 추가, @Value 주입)
+  - `PointController.java` (charge 엔드포인트 구현)
+  - `PointHistoryTable.java` (인터페이스 구현)
+  - `ErrorCode.java` (POINT_OVERFLOW 추가)
+  - `application.yml` (point.max-balance 추가)
+  - `PointServiceTest.java` (3개 테스트 추가)
+- **Tests**: 5/5 passing (Phase 1: 2개, Phase 2: 3개)
+- **New Features**:
+  - 포인트 충전 기능
+  - 최대 포인트 제한 (외부 설정)
+  - 오버플로우 검증
+  - 경계값 테스트
 
 ---
 

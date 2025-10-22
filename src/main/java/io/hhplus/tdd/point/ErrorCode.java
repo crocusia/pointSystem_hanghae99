@@ -29,7 +29,13 @@ public enum ErrorCode {
     /**
      * Bean Validation 제약 조건 위반 (예: @Positive, @NotNull 등)
      */
-    VALIDATION_ERROR(HttpStatus.BAD_REQUEST, "Input validation failed");
+    VALIDATION_ERROR(HttpStatus.BAD_REQUEST, "Input validation failed"),
+
+    /**
+     * 포인트 오버플로우 에러 (잔액 + 충전 금액이 최대 잔액 제한 초과)
+     * 최대 잔액은 application.yml의 point.max-balance 설정값
+     */
+    POINT_OVERFLOW(HttpStatus.BAD_REQUEST, "Maximum point limit exceeded. You can charge up to {0} more.");
 
     /**
      * HTTP 응답 상태 코드
