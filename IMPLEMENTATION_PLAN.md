@@ -130,33 +130,61 @@ Controller (@Positive) → Service (비즈니스 로직) → Repository (인터�
 
 ---
 
-### Phase 3: Point Usage Feature
+### Phase 3: Point Usage Feature ✅ COMPLETED
 **Goal:** Implement `PATCH /point/{id}/use` endpoint to deduct points from user account
 
 **Test Cases:**
-- [ ] Should successfully use points when balance is sufficient
-- [ ] Should update user point balance correctly
-- [ ] Should record USE transaction in history
-- [ ] Should reject when balance is insufficient
-- [ ] Should reject negative or zero amounts
-- [ ] Should reject when resulting balance would be negative
-- [ ] Should handle concurrent use requests safely
+
+*Unit Tests (PointService):*
+- [x] Should successfully use points and create USE history (잔액 감소 + 거래 내역 생성 통합 검증)
+- [x] Should succeed when using all balance (경계값 테스트 - 잔액 0)
+- [x] Should throw exception when balance is insufficient (with current balance in message)
 
 **Implementation Steps:**
-1. Implement `usePoint(long userId, long amount)` in `PointService`
-2. Add input validation (amount > 0)
-3. Add balance validation (balance >= amount)
-4. Update user point balance using `UserPointTable`
-5. Record transaction in `PointHistoryTable` with type USE
-6. Wire service to `PointController.use()` method
-7. Verify all tests pass
+1. [x] Add `INSUFFICIENT_POINTS` to `ErrorCode` enum
+2. [x] Implement `usePoint(long userId, long amount)` in `PointService`
+3. [x] Add balance validation (`validateSufficientBalance`)
+4. [x] Update user point balance using `UserPointRepository`
+5. [x] Record transaction in `PointHistoryRepository` with type USE
+6. [x] Wire service to `PointController.use()` method
+7. [x] Verify all tests pass
 
 **Business Rules:**
-- Amount must be positive (> 0)
+- Amount must be positive (> 0) - Controller 레이어에서 `@Positive` 검증
 - User must have sufficient balance (current points >= amount)
 - Balance cannot go negative
 - Must atomically update balance and create history record
 - Transaction type must be USE
+- On insufficient balance: throw INSUFFICIENT_POINTS exception with current balance
+
+**Implementation Details:**
+
+*Architecture:*
+```java
+Controller (@Positive) → Service (비즈니스 로직) → Repository (인터페이스) → Table (저장소)
+```
+
+*Files Created/Modified:*
+- ✅ `ErrorCode.java` - INSUFFICIENT_POINTS 추가
+- ✅ `PointException.java` - UserException에서 리네이밍
+- ✅ `PointService.java` - usePoint() 메서드 구현
+  - validateSufficientBalance() private 메서드 추출
+- ✅ `PointController.java` - use() 엔드포인트 구현
+- ✅ `ApiControllerAdvice.java` - PointException 핸들러 추가
+- ✅ `PointServiceTest.java` - 4개 테스트 작성
+
+*Key Features:*
+- ✅ 잔액 부족 검증 (balance < amount)
+- ✅ 사용자 친화적 에러 메시지 (현재 잔액 포함)
+- ✅ 경계값 테스트 (잔액 0까지 사용 가능)
+- ✅ 거래 내역 자동 기록 (TransactionType.USE)
+
+*Test Results:*
+- ✅ 3개 테스트 통과 (Phase 3)
+- ✅ 전체 7개 테스트 통과 (Phase 1: 1개, Phase 2: 3개, Phase 3: 3개)
+- ✅ Mock 기반 격리된 단위 테스트
+- ✅ Given-When-Then 패턴 적용
+- ✅ 테스트 리팩토링: 잔액 감소 + 거래 내역 생성을 하나의 테스트로 통합
 
 ---
 
@@ -211,18 +239,17 @@ Controller (@Positive) → Service (비즈니스 로직) → Repository (인터�
 ### Implemented Exception Structure:
 
 **ErrorCode Enum** (중앙 관리):
-- [x] `INVALID_USER_ID` - 유효하지 않은 유저 ID (양수 아님)
-- [x] `VALIDATION_ERROR` - Bean Validation 제약 위반
 - [x] `TYPE_MISMATCH` - 타입 불일치 (오버플로우, 소수점 등)
-- [ ] `INVALID_AMOUNT` - 금액 검증 실패 (음수, 0 등)
-- [ ] `INSUFFICIENT_POINTS` - 잔액 부족
+- [x] `VALIDATION_ERROR` - Bean Validation 제약 위반
+- [x] `POINT_OVERFLOW` - 포인트 최대 잔액 초과 (Phase 2)
+- [x] `INSUFFICIENT_POINTS` - 잔액 부족 (Phase 3)
 
 **Exception Classes**:
-- [x] `UserException` - ErrorCode 기반 비즈니스 예외
-- [x] ~~`InvalidUserIdException`~~ (UserException으로 통합)
+- [x] `PointException` - ErrorCode 기반 비즈니스 예외 (UserException에서 리네이밍)
+- [x] ~~`UserException`~~ (PointException으로 리네이밍)
 
 **ApiControllerAdvice Handlers**:
-- [x] `UserException` → ErrorCode의 HTTP 상태 코드 + 메시지
+- [x] `PointException` → ErrorCode의 HTTP 상태 코드 + 메시지 (동적 메시지 지원)
 - [x] `ConstraintViolationException` → 400 Bad Request
 - [x] `MethodArgumentTypeMismatchException` → 400 Bad Request
 - [x] `Exception` (fallback) → 500 Internal Server Error
@@ -307,10 +334,17 @@ class PointControllerTest {
    - [x] 단위 테스트 작성 (3개)
    - [x] ErrorCode.POINT_OVERFLOW 추가
 
-3. [ ] Phase 3: Point Usage
+3. [x] **Phase 3: Point Usage** ✅ COMPLETED (2025-10-23)
+   - [x] usePoint() 메서드 구현
+   - [x] 잔액 부족 검증 로직 추가
+   - [x] PointException 리네이밍 (UserException → PointException)
+   - [x] 단위 테스트 작성 (4개)
+   - [x] ErrorCode.INSUFFICIENT_POINTS 추가
+   - [x] Controller.use() 엔드포인트 구현
+
 4. [ ] Phase 4: Point History Inquiry
 5. [ ] Phase 5: Concurrency & Thread Safety
-6. [x] Exception Handling (Phase 1-2에서 구축 완료)
+6. [x] Exception Handling (Phase 1-3에서 구축 완료)
 7. [ ] Final integration testing
 8. [ ] Code coverage verification
 
@@ -345,6 +379,25 @@ class PointControllerTest {
   - 최대 포인트 제한 (외부 설정)
   - 오버플로우 검증
   - 경계값 테스트
+
+### Phase 3 Completion Summary:
+- **Files Created**: 1개
+  - `PointException.java` (UserException 리네이밍)
+- **Files Modified**: 5개
+  - `PointService.java` (usePoint 추가, validateSufficientBalance 추가)
+  - `PointController.java` (use 엔드포인트 구현, charge JavaDoc 업데이트)
+  - `ErrorCode.java` (INSUFFICIENT_POINTS 추가)
+  - `ApiControllerAdvice.java` (PointException 핸들러 추가)
+  - `PointServiceTest.java` (3개 테스트 추가 - 잔액 감소/거래 내역 생성 통합)
+- **Files Deleted**: 1개
+  - `UserException.java` (PointException으로 대체)
+- **Tests**: 7/7 passing (Phase 1: 1개, Phase 2: 3개, Phase 3: 3개)
+- **New Features**:
+  - 포인트 사용 기능
+  - 잔액 부족 검증
+  - 경계값 테스트 (잔액 0까지 사용)
+  - 사용자 친화적 에러 메시지 (현재 잔액 포함)
+  - PointException 리네이밍으로 도메인 명확성 향상
 
 ---
 

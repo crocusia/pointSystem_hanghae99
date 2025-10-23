@@ -168,7 +168,7 @@ class PointServiceTest {
 
         // When & Then
         assertThatThrownBy(() -> pointService.chargePoint(userId, chargeAmount))
-                .isInstanceOf(UserException.class)
+                .isInstanceOf(PointException.class)
                 .hasFieldOrPropertyWithValue("errorCode", ErrorCode.POINT_OVERFLOW)
                 .hasMessageContaining(String.valueOf(expectedMaxChargeable));
     }
@@ -211,4 +211,112 @@ class PointServiceTest {
     }
 
     //추후 실제 DB 사용 시, DB 기반 원자성 검증 필요
+
+    /**
+     * ========================================
+     * Phase 3: Point Usage Feature - Unit Tests
+     * TDD Red Stage - Tests for usePoint method
+     * ========================================
+     */
+
+    /**
+     * 테스트 설계)
+     * 포인트 사용 기능의 핵심 동작 검증
+     * case 1) 충분한 잔액이 있을 때 포인트 사용 성공 시, 잔액 감소 및 USE 타입 거래 내역 생성
+     */
+    @Test
+    @DisplayName("포인트 사용 성공 시, 잔액이 감소하고 USE 타입 거래 내역이 생성되어야 한다")
+    void usePoint_success_decreasesBalanceAndCreatesHistory() {
+        // Given
+        long userId = 1L;
+        long currentBalance = 1000L;
+        long useAmount = 999L;
+        long expectedBalance = 1L;
+
+        UserPoint currentPoint = new UserPoint(userId, currentBalance, System.currentTimeMillis());
+        UserPoint updatedPoint = new UserPoint(userId, expectedBalance, System.currentTimeMillis());
+
+        when(userPointRepository.selectById(userId)).thenReturn(currentPoint);
+        when(userPointRepository.insertOrUpdate(userId, expectedBalance)).thenReturn(updatedPoint);
+
+        PointHistory expectedHistory = new PointHistory(1L, userId, useAmount, TransactionType.USE, System.currentTimeMillis());
+        when(pointHistoryRepository.insert(eq(userId), eq(useAmount), eq(TransactionType.USE), anyLong()))
+                .thenReturn(expectedHistory);
+
+        // When
+        UserPoint result = pointService.usePoint(userId, useAmount);
+
+        // Then
+        assertThat(result.id()).isEqualTo(userId);
+        assertThat(result.point()).isEqualTo(expectedBalance);
+        assertThat(result.updateMillis()).isEqualTo(updatedPoint.updateMillis());
+
+        verify(pointHistoryRepository, times(1)).insert(
+            eq(userId),
+            eq(useAmount),
+            eq(TransactionType.USE),
+            anyLong()
+        );
+    }
+
+    /**
+     * 테스트 설계)
+     * case 2) 경계값 테스트 - 잔액을 전부 사용
+     */
+    @Test
+    @DisplayName("예상 잔액이 0인 경우 포인트 사용에 성공한다")
+    void usePoint_success_whenBalanceBecomesZero() {
+        // Given
+        long userId = 1L;
+        long currentBalance = 1000L;
+        long useAmount = 1000L;
+        long expectedBalance = 0L;
+
+        UserPoint currentPoint = new UserPoint(userId, currentBalance, System.currentTimeMillis());
+        UserPoint updatedPoint = new UserPoint(userId, expectedBalance, System.currentTimeMillis());
+
+        when(userPointRepository.selectById(userId)).thenReturn(currentPoint);
+        when(userPointRepository.insertOrUpdate(userId, expectedBalance)).thenReturn(updatedPoint);
+
+        PointHistory expectedHistory = new PointHistory(1L, userId, useAmount, TransactionType.USE, System.currentTimeMillis());
+        when(pointHistoryRepository.insert(eq(userId), eq(useAmount), eq(TransactionType.USE), anyLong()))
+                .thenReturn(expectedHistory);
+
+        // When
+        UserPoint result = pointService.usePoint(userId, useAmount);
+
+        // Then
+        assertThat(result.id()).isEqualTo(userId);
+        assertThat(result.point()).isEqualTo(0L);
+
+        verify(pointHistoryRepository, times(1)).insert(
+                eq(userId),
+                eq(useAmount),
+                eq(TransactionType.USE),
+                anyLong()
+        );
+    }
+
+    /**
+     * 테스트 설계)
+     * case 3) 잔액이 부족할 때 예외 발생
+     * 사용자 편의성을 위해 에러 메시지에 현재 잔액 포함
+     */
+    @Test
+    @DisplayName("잔액이 부족하면 예외가 발생하고, 현재 잔액이 메시지에 포함되어야 한다")
+    void usePoint_WithInsufficientBalance_ShouldThrowExceptionWithCurrentBalance() {
+        // Given
+        long userId = 1L;
+        long currentBalance = 1000L;
+        long useAmount = 1001L;
+
+        UserPoint currentPoint = new UserPoint(userId, currentBalance, System.currentTimeMillis());
+        when(userPointRepository.selectById(userId)).thenReturn(currentPoint);
+
+        // When & Then
+        assertThatThrownBy(() -> pointService.usePoint(userId, useAmount))
+                .isInstanceOf(PointException.class)
+                .hasFieldOrPropertyWithValue("errorCode", ErrorCode.INSUFFICIENT_POINTS)
+                .hasMessageContaining(String.valueOf(currentBalance));
+    }
 }

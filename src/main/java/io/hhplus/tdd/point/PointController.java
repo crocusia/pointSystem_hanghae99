@@ -47,7 +47,14 @@ public class PointController {
     }
 
     /**
-     * TODO - 특정 유저의 포인트를 충전하는 기능을 작성해주세요.
+     * 특정 유저의 포인트를 충전합니다.
+     * <p>
+     * 유저 ID와 충전 금액은 {@code @Positive} 어노테이션으로 검증되며, 양수가 아닌 경우 400 Bad Request를 반환합니다.
+     * 최대 포인트 제한을 초과하는 경우 400 Bad Request와 함께 충전 가능 금액 정보가 포함된 에러 메시지를 반환합니다.
+     *
+     * @param id 충전할 유저 ID (양수만 허용)
+     * @param amount 충전할 금액 (양수만 허용)
+     * @return 업데이트된 유저의 포인트 정보
      */
     @PatchMapping("{id}/charge")
     public UserPoint charge(
@@ -58,13 +65,20 @@ public class PointController {
     }
 
     /**
-     * TODO - 특정 유저의 포인트를 사용하는 기능을 작성해주세요.
+     * 특정 유저의 포인트를 사용합니다.
+     * <p>
+     * 유저 ID와 사용 금액은 {@code @Positive} 어노테이션으로 검증되며, 양수가 아닌 경우 400 Bad Request를 반환합니다.
+     * 잔액이 부족한 경우 400 Bad Request와 함께 현재 잔액 정보가 포함된 에러 메시지를 반환합니다.
+     *
+     * @param id 포인트를 사용할 유저 ID (양수만 허용)
+     * @param amount 사용할 금액 (양수만 허용)
+     * @return 업데이트된 유저의 포인트 정보
      */
     @PatchMapping("{id}/use")
     public UserPoint use(
-            @PathVariable long id,
-            @RequestBody long amount
+            @PathVariable @Positive long id,
+            @RequestBody @Positive long amount
     ) {
-        return new UserPoint(0, 0, 0);
+        return pointService.usePoint(id, amount);
     }
 }

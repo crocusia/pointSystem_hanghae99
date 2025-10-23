@@ -35,7 +35,13 @@ public enum ErrorCode {
      * 포인트 오버플로우 에러 (잔액 + 충전 금액이 최대 잔액 제한 초과)
      * 최대 잔액은 application.yml의 point.max-balance 설정값
      */
-    POINT_OVERFLOW(HttpStatus.BAD_REQUEST, "Maximum point limit exceeded. You can charge up to {0} more.");
+    POINT_OVERFLOW(HttpStatus.BAD_REQUEST, "Maximum point limit exceeded. You can charge up to {0} more."),
+
+    /**
+     * 포인트 잔액 부족 에러 (사용 금액이 현재 잔액보다 큼)
+     * 메시지에 현재 잔액 정보를 포함하여 사용자 편의성 향상
+     */
+    INSUFFICIENT_POINTS(HttpStatus.BAD_REQUEST, "Insufficient points. Your current balance is {0}.");
 
     /**
      * HTTP 응답 상태 코드

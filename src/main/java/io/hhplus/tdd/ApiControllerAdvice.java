@@ -1,7 +1,7 @@
 package io.hhplus.tdd;
 
 import io.hhplus.tdd.point.ErrorCode;
-import io.hhplus.tdd.point.UserException;
+import io.hhplus.tdd.point.PointException;
 import jakarta.validation.ConstraintViolation;
 import jakarta.validation.ConstraintViolationException;
 import org.springframework.http.HttpStatus;
@@ -13,6 +13,23 @@ import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExcep
 
 @RestControllerAdvice
 class ApiControllerAdvice extends ResponseEntityExceptionHandler {
+
+    /**
+     * 포인트 시스템 비즈니스 로직 예외 처리
+     * <p>
+     * PointException은 ErrorCode를 포함하고 있으며,
+     * 이를 통해 HTTP 상태 코드와 에러 메시지를 결정합니다.
+     * <p>
+     * 처리하는 예외:
+     * - POINT_OVERFLOW: 최대 포인트 제한 초과
+     * - INSUFFICIENT_POINTS: 잔액 부족
+     */
+    @ExceptionHandler(PointException.class)
+    public ResponseEntity<ErrorResponse> handlePointException(PointException e) {
+        return ResponseEntity
+            .status(e.getErrorCode().getStatus())
+            .body(new ErrorResponse(e.getErrorCode().name(), e.getMessage()));
+    }
 
     /**
      * Bean Validation 예외 처리 (@Positive 등의 제약 조건 위반)
