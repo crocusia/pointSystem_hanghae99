@@ -456,6 +456,24 @@ class PointControllerTest {
   - ✅ DRY 원칙 적용 (중복 코드 제거)
 - **Tests**: 7/7 passing (리팩토링 후 모든 테스트 통과 확인)
 
+### Test Code Refactoring 2 (2025-10-24):
+- **Files Modified**: 1개
+  - `PointServiceTest.java` - 행위 검증(Behavior Verification) 중심으로 전환
+- **Test Philosophy Change**:
+  - ✅ **변경 전**: "What(결과값)" 중심 - 반환값 검증 (`assertThat(result.point()).isEqualTo(expected)`)
+  - ✅ **변경 후**: "How(동작 방식)" 중심 - 레포지토리 호출 검증 (`verify(repository).method(params)`)
+- **Improvements**:
+  - ✅ `getUserPoint`: 레포지토리가 올바른 userId로 호출되는지 검증
+  - ✅ `chargePoint`: selectById(), insertOrUpdate(), insert() 호출 검증
+  - ✅ `usePoint`: selectById(), insertOrUpdate(), insert() 호출 검증
+  - ✅ 초기 잔액 변경: 5000L → 0L (충전 시나리오 명확화)
+  - ✅ 경계값 테스트(잔액 0) 삭제: 불필요한 중복 테스트 제거
+- **Rationale**:
+  - 단위 테스트는 서비스가 올바른 파라미터로 협력 객체를 호출하는지 검증
+  - 반환값은 Mock이 제공하는 것이므로 검증 불필요
+  - 행위 검증으로 테스트 의도 명확화 및 간소화
+- **Tests**: 5/5 passing (Phase 1: 1개, Phase 2: 2개, Phase 3: 2개)
+
 ---
 
 ## Notes & Considerations

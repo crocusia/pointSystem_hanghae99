@@ -1372,4 +1372,300 @@ void chargeSuccess_IncreasesBalanceAndCreatesHistory() {
 
 ---
 
-*Last Updated: 2025-10-23*
+## 📅 2025-10-24
+
+### 🎯 Test Code Refactoring 2: 행위 검증 중심으로 전환
+
+---
+
+## 1️⃣ 리팩토링 동기
+
+### 문제 인식
+기존 테스트 코드는 **"What(무엇을 반환하는가)"** 에 초점:
+```java
+// When
+UserPoint result = pointService.chargePoint(userId, amount);
+
+// Then
+assertThat(result.point()).isEqualTo(expectedBalance);  // 반환값 검증
+```
+
+**문제점**:
+- Mock이 제공한 값을 그대로 검증 (의미 없는 검증)
+- 서비스가 실제로 올바르게 동작하는지 검증 불가
+- 불필요한 반환값 검증 코드로 테스트 복잡도 증가
+
+### 개선 방향
+**"How(어떻게 동작하는가)"** 에 초점을 맞춤:
+```java
+// When
+pointService.chargePoint(userId, amount);
+
+// Then
+verify(userPointRepository).selectById(userId);
+verify(userPointRepository).insertOrUpdate(userId, expectedBalance);
+verify(pointHistoryRepository).insert(eq(userId), eq(amount), eq(TransactionType.CHARGE), anyLong());
+```
+
+**효과**:
+- 서비스가 올바른 파라미터로 협력 객체를 호출하는지 검증
+- 테스트 의도 명확화 (무엇을 검증하는지 한눈에 파악)
+- 불필요한 반환값 검증 제거로 테스트 간소화
+
+---
+
+## 2️⃣ 변경 내역
+
+### 변경 1: getUserPoint 테스트
+
+**Before:**
+```java
+@DisplayName("유저 포인트 조회 시 레포지토리에서 조회한 값을 반환해야 한다")
+void getUserPoint_ShouldReturnUserPointFromRepository() {
+    // Given
+    long expectedPoints = 5000L;
+    mockUserPointSelect(DEFAULT_USER_ID, expectedPoints);
+
+    // When
+    UserPoint result = pointService.getUserPoint(DEFAULT_USER_ID);
+
+    // Then
+    assertThat(result.id()).isEqualTo(DEFAULT_USER_ID);
+    assertThat(result.point()).isEqualTo(expectedPoints);
+    assertThat(result.updateMillis()).isEqualTo(currentTime);
+}
+```
+
+**After:**
+```java
+@DisplayName("유저 포인트 조회 시 올바른 userId로 레포지토리를 호출해야 한다")
+void getUserPoint_ShouldCallRepositoryWithCorrectUserId() {
+    // Given
+    mockUserPointSelect(DEFAULT_USER_ID, 1000L);
+
+    // When
+    pointService.getUserPoint(DEFAULT_USER_ID);
+
+    // Then
+    verify(userPointRepository).selectById(DEFAULT_USER_ID);
+}
+```
+
+**변경 사항**:
+- 반환값 검증 3줄 → 레포지토리 호출 검증 1줄
+- 테스트 코드 주석에 "행위 검증" 명시
+
+---
+
+### 변경 2: chargePoint 테스트
+
+**Before:**
+```java
+@DisplayName("충전 성공 시, 잔액이 증가하고 CHARGE 타입 거래 내역이 생성되어야 한다")
+void chargeSuccess_IncreasesBalanceAndCreatesHistory() {
+    // Given
+    long currentBalance = 5000L;
+    long chargeAmount = 1000L;
+    long expectedBalance = 6000L;
+
+    // When
+    UserPoint result = pointService.chargePoint(DEFAULT_USER_ID, chargeAmount);
+
+    // Then
+    assertThat(result.id()).isEqualTo(DEFAULT_USER_ID);
+    assertThat(result.point()).isEqualTo(expectedBalance);
+    assertThat(result.updateMillis()).isEqualTo(currentTime);
+
+    verify(pointHistoryRepository, times(1)).insert(...);
+}
+```
+
+**After:**
+```java
+@DisplayName("충전 성공 시, 올바른 금액으로 업데이트하고 거래 내역을 생성해야 한다")
+void chargeSuccess_IncreasesBalanceAndCreatesHistory() {
+    // Given
+    long currentBalance = 0L;  // 5000L → 0L 변경
+    long chargeAmount = 1000L;
+    long expectedBalance = 1000L;
+
+    // When
+    pointService.chargePoint(DEFAULT_USER_ID, chargeAmount);
+
+    // Then
+    verify(userPointRepository).selectById(DEFAULT_USER_ID);
+    verify(userPointRepository).insertOrUpdate(DEFAULT_USER_ID, expectedBalance);
+    verify(pointHistoryRepository).insert(
+        eq(DEFAULT_USER_ID),
+        eq(chargeAmount),
+        eq(TransactionType.CHARGE),
+        anyLong()
+    );
+}
+```
+
+**변경 사항**:
+- 초기 잔액: 5000L → 0L (신규 유저 충전 시나리오로 명확화)
+- 반환값 검증 제거
+- 3개의 레포지토리 호출 검증 추가
+- 테스트 코드 주석: "case 1) 잔액 증가, history 생성" → "case 1) 금액 업데이트하고 거래 내역을 생성 메서드가 호출되는가"
+
+---
+
+### 변경 3: usePoint 테스트
+
+**Before:**
+```java
+@DisplayName("포인트 사용 성공 시, 잔액이 감소하고 USE 타입 거래 내역이 생성되어야 한다")
+void usePoint_success_decreasesBalanceAndCreatesHistory() {
+    // Then
+    assertThat(result.id()).isEqualTo(DEFAULT_USER_ID);
+    assertThat(result.point()).isEqualTo(expectedBalance);
+    assertThat(result.updateMillis()).isEqualTo(currentTime);
+
+    verify(pointHistoryRepository, times(1)).insert(...);
+}
+
+// 경계값 테스트 (잔액 0) 별도 존재
+@Test
+@DisplayName("예상 잔액이 0인 경우 포인트 사용에 성공한다")
+void usePoint_success_whenBalanceBecomesZero()
+```
+
+**After:**
+```java
+@DisplayName("포인트 사용 성공 시 올바른 금액으로 업데이트하고 거래 내역을 생성해야 한다")
+void usePoint_success_decreasesBalanceAndCreatesHistory() {
+    // Then
+    verify(userPointRepository).selectById(DEFAULT_USER_ID);
+    verify(userPointRepository).insertOrUpdate(DEFAULT_USER_ID, expectedBalance);
+    verify(pointHistoryRepository).insert(
+        eq(DEFAULT_USER_ID),
+        eq(useAmount),
+        eq(TransactionType.USE),
+        anyLong()
+    );
+}
+
+// 경계값 테스트 삭제됨
+```
+
+**변경 사항**:
+- 반환값 검증 제거
+- 3개의 레포지토리 호출 검증 추가
+- 경계값 테스트(잔액 0) 삭제: 중복 테스트 제거
+- 테스트 코드 주석: "case 1) 충분한 잔액..." → "case 1) 금액 업데이트, 거래 내역 생성 행위 검증"
+- case 3 → case 2로 번호 조정
+
+---
+
+## 3️⃣ 테스트 철학 변화
+
+### Mock 기반 단위 테스트의 본질
+
+**단위 테스트가 검증해야 할 것**:
+- ✅ 서비스가 올바른 파라미터로 협력 객체를 호출하는가?
+- ✅ 비즈니스 로직이 올바른 순서로 실행되는가?
+- ✅ 예외 상황에서 적절한 예외를 던지는가?
+
+**단위 테스트가 검증할 필요 없는 것**:
+- ❌ Mock이 반환한 값 (Mock이 제공한 것을 다시 검증하는 것은 무의미)
+- ❌ 레포지토리의 실제 동작 (통합 테스트의 책임)
+
+### 변경 전후 비교
+
+| 항목 | Before (What) | After (How) |
+|------|---------------|-------------|
+| 검증 대상 | 반환값 | 메서드 호출 |
+| 검증 방식 | `assertThat(result.point()).isEqualTo(expected)` | `verify(repository).method(params)` |
+| 테스트 의도 | "올바른 값을 반환하는가?" | "올바른 동작을 수행하는가?" |
+| 코드 길이 | 길다 (반환값 검증 3줄) | 짧다 (호출 검증 명확) |
+| 유지보수성 | 낮다 (반환값 변경 시 수정 필요) | 높다 (동작 변경 시만 수정) |
+
+---
+
+## 4️⃣ 최종 구현 결과
+
+### 주요 성과
+
+✅ **테스트 의도 명확화**
+- "What"이 아닌 "How" 검증
+- 서비스의 핵심 책임인 "협력 객체 조율" 검증
+
+✅ **테스트 간소화**
+- 불필요한 반환값 검증 제거
+- 반환값 검증 3줄 → 호출 검증으로 간소화
+
+✅ **테스트 개수 감소**
+- Phase 1: 1개 유지
+- Phase 2: 3개 → 2개 (경계값 테스트 유지)
+- Phase 3: 3개 → 2개 (경계값 테스트 삭제)
+- Total: 7개 → 5개
+
+✅ **테스트 일관성**
+- 모든 테스트가 동일한 철학 (행위 검증)
+- 테스트 코드 주석에 "행위 검증" 명시
+
+### 테스트 결과
+- **Phase 1**: 1개 테스트 ✅
+- **Phase 2**: 2개 테스트 ✅
+- **Phase 3**: 2개 테스트 ✅
+- **Total**: 5/5 passing
+
+---
+
+## 5️⃣ 리팩토링 히스토리
+
+| 순서 | 리팩토링 내용 | 목적 |
+|------|--------------|------|
+| 1 | getUserPoint 테스트 변경 | 반환값 → 레포지토리 호출 검증 |
+| 2 | chargePoint 테스트 변경 | 반환값 제거, 3개 메서드 호출 검증 |
+| 3 | chargePoint 초기 잔액 변경 (5000L → 0L) | 신규 유저 충전 시나리오 명확화 |
+| 4 | usePoint 테스트 변경 | 반환값 제거, 3개 메서드 호출 검증 |
+| 5 | usePoint 경계값 테스트 삭제 | 중복 테스트 제거 |
+| 6 | 테스트 코드 주석 업데이트 | "행위 검증" 명시 |
+
+---
+
+## 💡 배운 점 (Lessons Learned)
+
+**1. Mock 기반 테스트의 올바른 사용**
+- Mock이 제공한 값을 다시 검증하는 것은 무의미
+- Mock은 협력 객체의 호출 여부와 파라미터를 검증하기 위한 도구
+- 단위 테스트 = "이 서비스가 올바르게 협력하는가?"
+
+**2. 테스트 철학의 중요성**
+- "What"보다 "How"가 중요한 경우가 있음
+- 단위 테스트: How (동작 검증)
+- 통합 테스트: What (결과 검증)
+- E2E 테스트: End-to-End (전체 흐름 검증)
+
+**3. 테스트 간소화의 가치**
+- 불필요한 검증은 테스트를 복잡하게 만듦
+- 핵심만 검증하면 테스트 의도가 명확해짐
+- 테스트 유지보수 비용 감소
+
+**4. 경계값 테스트의 재평가**
+- usePoint 경계값 테스트 삭제 이유:
+  - 행위 검증 관점에서 잔액 0 케이스는 일반 케이스와 동일
+  - 레포지토리 호출이 동일하므로 중복 테스트
+  - 경계값 검증은 비즈니스 로직(validateSufficientBalance)에서 이미 수행
+- chargePoint 경계값 테스트 유지 이유:
+  - 오버플로우 검증 로직의 경계값 (max - 1 + 1 = max)
+  - `>=` vs `>` 연산자 실수 방지
+
+**5. 테스트 코드 주석의 중요성**
+- "case 1) 잔액 증가, history 생성"
+  → "case 1) 금액 업데이트하고 거래 내역을 생성 메서드가 호출되는가"
+- 주석만 봐도 테스트 의도 파악 가능
+- "행위 검증"이라는 키워드로 테스트 철학 명시
+
+**6. 점진적 리팩토링**
+- Test Code Refactoring 1: 헬퍼 메서드 도입 (2025-10-23)
+- Test Code Refactoring 2: 행위 검증 중심 전환 (2025-10-24)
+- 한 번에 완벽하게 하려 하지 말고 단계적 개선
+- 각 단계마다 테스트 통과 확인으로 안정성 보장
+
+---
+
+*Last Updated: 2025-10-24*
