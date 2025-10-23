@@ -1,92 +1,56 @@
 package io.hhplus.tdd.point;
 
-import jakarta.validation.constraints.Positive;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
 
 @RestController
 @RequestMapping("/point")
-@Validated
 public class PointController {
 
     private static final Logger log = LoggerFactory.getLogger(PointController.class);
-    private final PointService pointService;
-    private final PointHistoryService pointHistoryService;
-
-    public PointController(PointService pointService, PointHistoryService pointHistoryService) {
-        this.pointService = pointService;
-        this.pointHistoryService = pointHistoryService;
-    }
 
     /**
-     * 특정 유저의 포인트를 조회합니다.
-     * <p>
-     * 유저 ID는 {@code @Positive} 어노테이션으로 검증되며, 양수가 아닌 경우 400 Bad Request를 반환합니다.
-     * 타입 불일치(소수점, 문자열 등) 또는 오버플로우 발생 시에도 400 Bad Request를 반환합니다.
-     *
-     * @param id 조회할 유저 ID (양수만 허용)
-     * @return 유저의 포인트 정보
+     * TODO - 특정 유저의 포인트를 조회하는 기능을 작성해주세요.
      */
     @GetMapping("{id}")
     public UserPoint point(
-            @PathVariable @Positive long id
+            @PathVariable long id
     ) {
-        return pointService.getUserPoint(id);
+        return new UserPoint(0, 0, 0);
     }
 
     /**
-     * 특정 유저의 포인트 충전/이용 내역을 조회합니다.
-     * <p>
-     * 유저 ID는 {@code @Positive} 어노테이션으로 검증되며, 양수가 아닌 경우 400 Bad Request를 반환합니다.
-     * 거래 내역이 없는 경우 빈 리스트를 반환합니다.
-     *
-     * @param id 조회할 유저 ID (양수만 허용)
-     * @return 유저의 포인트 거래 내역 리스트
+     * TODO - 특정 유저의 포인트 충전/이용 내역을 조회하는 기능을 작성해주세요.
      */
     @GetMapping("{id}/histories")
     public List<PointHistory> history(
-            @PathVariable @Positive long id
+            @PathVariable long id
     ) {
-        return pointHistoryService.getPointHistory(id);
+        return List.of();
     }
 
     /**
-     * 특정 유저의 포인트를 충전합니다.
-     * <p>
-     * 유저 ID와 충전 금액은 {@code @Positive} 어노테이션으로 검증되며, 양수가 아닌 경우 400 Bad Request를 반환합니다.
-     * 최대 포인트 제한을 초과하는 경우 400 Bad Request와 함께 충전 가능 금액 정보가 포함된 에러 메시지를 반환합니다.
-     *
-     * @param id 충전할 유저 ID (양수만 허용)
-     * @param amount 충전할 금액 (양수만 허용)
-     * @return 업데이트된 유저의 포인트 정보
+     * TODO - 특정 유저의 포인트를 충전하는 기능을 작성해주세요.
      */
     @PatchMapping("{id}/charge")
     public UserPoint charge(
-            @PathVariable @Positive long id,
-            @RequestBody @Positive long amount
+            @PathVariable long id,
+            @RequestBody long amount
     ) {
-        return pointService.chargePoint(id, amount);
+        return new UserPoint(0, 0, 0);
     }
 
     /**
-     * 특정 유저의 포인트를 사용합니다.
-     * <p>
-     * 유저 ID와 사용 금액은 {@code @Positive} 어노테이션으로 검증되며, 양수가 아닌 경우 400 Bad Request를 반환합니다.
-     * 잔액이 부족한 경우 400 Bad Request와 함께 현재 잔액 정보가 포함된 에러 메시지를 반환합니다.
-     *
-     * @param id 포인트를 사용할 유저 ID (양수만 허용)
-     * @param amount 사용할 금액 (양수만 허용)
-     * @return 업데이트된 유저의 포인트 정보
+     * TODO - 특정 유저의 포인트를 사용하는 기능을 작성해주세요.
      */
     @PatchMapping("{id}/use")
     public UserPoint use(
-            @PathVariable @Positive long id,
-            @RequestBody @Positive long amount
+            @PathVariable long id,
+            @RequestBody long amount
     ) {
-        return pointService.usePoint(id, amount);
+        return new UserPoint(0, 0, 0);
     }
 }

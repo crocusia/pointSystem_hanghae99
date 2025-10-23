@@ -1,6 +1,2 @@
 spring:
   application.name: hhplus-tdd
-
-# 포인트 시스템 설정
-point:
-  max-balance: 100000
