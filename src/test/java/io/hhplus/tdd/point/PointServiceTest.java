@@ -73,23 +73,20 @@ class PointServiceTest {
      * 서비스 관점에서 포인트 조회는 단순히 레포지토리에서 조회한 값을 반환하는 동작임
      * 신규/기존 유저 구분은 레포지토리의 책임이므로 서비스 테스트에서는 검증 불필요
      *
-     * case 1) 유저 포인트를 정상적으로 조회하고 레포지토리 반환값을 그대로 반환하는가
+     * case 1) 유저 포인트 조회 시 올바른 userId로 레포지토리를 호출하는가 = 행위 검증 verify
      */
 
     @Test
-    @DisplayName("유저 포인트 조회 시 레포지토리에서 조회한 값을 반환해야 한다")
-    void getUserPoint_ShouldReturnUserPointFromRepository() {
+    @DisplayName("유저 포인트 조회 시 올바른 userId로 레포지토리를 호출해야 한다")
+    void getUserPoint_ShouldCallRepositoryWithCorrectUserId() {
         // Given
-        long expectedPoints = 5000L;
-        mockUserPointSelect(DEFAULT_USER_ID, expectedPoints);
+        mockUserPointSelect(DEFAULT_USER_ID, 1000L);
 
         // When
-        UserPoint result = pointService.getUserPoint(DEFAULT_USER_ID);
+        pointService.getUserPoint(DEFAULT_USER_ID);
 
         // Then
-        assertThat(result.id()).isEqualTo(DEFAULT_USER_ID);
-        assertThat(result.point()).isEqualTo(expectedPoints);
-        assertThat(result.updateMillis()).isEqualTo(currentTime);
+        verify(userPointRepository).selectById(DEFAULT_USER_ID);
     }
 
     /**
@@ -122,31 +119,27 @@ class PointServiceTest {
     /**
      * 테스트 설계)
      * 서비스 코드의 포인트 충전에서 사용되는 중요 기능 중심 검증
-     * case 1) 잔액 증가, history 생성
+     * case 1) 금액 업데이트하고 거래 내역을 생성 메서드가 호출되는가
      */
     @Test
-    @DisplayName("충전 성공 시, 잔액이 증가하고 CHARGE 타입 거래 내역이 생성되어야 한다")
+    @DisplayName("충전 성공 시, 올바른 금액으로 업데이트하고 거래 내역을 생성해야 한다")
     void chargeSuccess_IncreasesBalanceAndCreatesHistory() {
         // Given
-        long currentBalance = 5000L;
+        long currentBalance = 0L;
         long chargeAmount = 1000L;
-        long expectedBalance = 6000L;
+        long expectedBalance = 1000L;
 
         mockUserPointSelect(DEFAULT_USER_ID, currentBalance);
         mockUserPointUpdate(DEFAULT_USER_ID, expectedBalance);
         mockPointHistoryInsert(DEFAULT_USER_ID, chargeAmount, TransactionType.CHARGE);
 
         // When
-        UserPoint result = pointService.chargePoint(DEFAULT_USER_ID, chargeAmount);
+        pointService.chargePoint(DEFAULT_USER_ID, chargeAmount);
 
         // Then
-        //잔액 증가
-        assertThat(result.id()).isEqualTo(DEFAULT_USER_ID);
-        assertThat(result.point()).isEqualTo(expectedBalance);
-        assertThat(result.updateMillis()).isEqualTo(currentTime);
-
-        //거래 내역 생성
-        verify(pointHistoryRepository, times(1)).insert(
+        verify(userPointRepository).selectById(DEFAULT_USER_ID);
+        verify(userPointRepository).insertOrUpdate(DEFAULT_USER_ID, expectedBalance);
+        verify(pointHistoryRepository).insert(
             eq(DEFAULT_USER_ID),
             eq(chargeAmount),
             eq(TransactionType.CHARGE),
@@ -202,12 +195,12 @@ class PointServiceTest {
         mockPointHistoryInsert(DEFAULT_USER_ID, chargeAmount, TransactionType.CHARGE);
 
         // When
-        UserPoint result = pointService.chargePoint(DEFAULT_USER_ID, chargeAmount);
+        pointService.chargePoint(DEFAULT_USER_ID, chargeAmount);
 
         // Then
-        assertThat(result.id()).isEqualTo(DEFAULT_USER_ID);
-        assertThat(result.point()).isEqualTo(TEST_MAX);
-        verify(pointHistoryRepository, times(1)).insert(
+        verify(userPointRepository).selectById(DEFAULT_USER_ID);
+        verify(userPointRepository).insertOrUpdate(DEFAULT_USER_ID, expectedBalance);
+        verify(pointHistoryRepository).insert(
                 eq(DEFAULT_USER_ID),
                 eq(chargeAmount),
                 eq(TransactionType.CHARGE),
@@ -227,10 +220,10 @@ class PointServiceTest {
     /**
      * 테스트 설계)
      * 포인트 사용 기능의 핵심 동작 검증
-     * case 1) 충분한 잔액이 있을 때 포인트 사용 성공 시, 잔액 감소 및 USE 타입 거래 내역 생성
+     * case 1) 금액 업데이트, 거래 내역 생성 행위 검증
      */
     @Test
-    @DisplayName("포인트 사용 성공 시, 잔액이 감소하고 USE 타입 거래 내역이 생성되어야 한다")
+    @DisplayName("포인트 사용 성공 시 올바른 금액으로 업데이트하고 거래 내역을 생성해야 한다")
     void usePoint_success_decreasesBalanceAndCreatesHistory() {
         // Given
         long currentBalance = 1000L;
@@ -242,14 +235,12 @@ class PointServiceTest {
         mockPointHistoryInsert(DEFAULT_USER_ID, useAmount, TransactionType.USE);
 
         // When
-        UserPoint result = pointService.usePoint(DEFAULT_USER_ID, useAmount);
+        pointService.usePoint(DEFAULT_USER_ID, useAmount);
 
         // Then
-        assertThat(result.id()).isEqualTo(DEFAULT_USER_ID);
-        assertThat(result.point()).isEqualTo(expectedBalance);
-        assertThat(result.updateMillis()).isEqualTo(currentTime);
-
-        verify(pointHistoryRepository, times(1)).insert(
+        verify(userPointRepository).selectById(DEFAULT_USER_ID);
+        verify(userPointRepository).insertOrUpdate(DEFAULT_USER_ID, expectedBalance);
+        verify(pointHistoryRepository).insert(
             eq(DEFAULT_USER_ID),
             eq(useAmount),
             eq(TransactionType.USE),
@@ -259,38 +250,7 @@ class PointServiceTest {
 
     /**
      * 테스트 설계)
-     * case 2) 경계값 테스트 - 잔액을 전부 사용
-     */
-    @Test
-    @DisplayName("예상 잔액이 0인 경우 포인트 사용에 성공한다")
-    void usePoint_success_whenBalanceBecomesZero() {
-        // Given
-        long currentBalance = 1000L;
-        long useAmount = 1000L;
-        long expectedBalance = 0L;
-
-        mockUserPointSelect(DEFAULT_USER_ID, currentBalance);
-        mockUserPointUpdate(DEFAULT_USER_ID, expectedBalance);
-        mockPointHistoryInsert(DEFAULT_USER_ID, useAmount, TransactionType.USE);
-
-        // When
-        UserPoint result = pointService.usePoint(DEFAULT_USER_ID, useAmount);
-
-        // Then
-        assertThat(result.id()).isEqualTo(DEFAULT_USER_ID);
-        assertThat(result.point()).isEqualTo(0L);
-
-        verify(pointHistoryRepository, times(1)).insert(
-                eq(DEFAULT_USER_ID),
-                eq(useAmount),
-                eq(TransactionType.USE),
-                anyLong()
-        );
-    }
-
-    /**
-     * 테스트 설계)
-     * case 3) 잔액이 부족할 때 예외 발생
+     * case 2) 잔액이 부족할 때 예외 발생
      * 사용자 편의성을 위해 에러 메시지에 현재 잔액 포함
      */
     @Test

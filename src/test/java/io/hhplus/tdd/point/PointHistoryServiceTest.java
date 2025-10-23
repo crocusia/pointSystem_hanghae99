@@ -43,23 +43,15 @@ class PointHistoryServiceTest {
      */
 
     @Test
-    @DisplayName("포인트 내역 조회 시 레포지토리에서 조회한 값을 반환해야 한다")
-    void getPointHistory_ShouldReturnHistoriesFromRepository() {
+    @DisplayName("포인트 내역 조회 시 레포지토리를 올바른 userId로 호출해야 한다")
+    void getPointHistory_ShouldCallRepositoryWithCorrectUserId() {
         // Given
         long userId = 1L;
-        long timestamp = System.currentTimeMillis();
-
-        PointHistory history1 = new PointHistory(1L, userId, 1000L, TransactionType.CHARGE, timestamp);
-        PointHistory history2 = new PointHistory(2L, userId, 500L, TransactionType.USE, timestamp + 1000L);
-        List<PointHistory> expectedHistories = List.of(history1, history2);
-
-        when(pointHistoryRepository.selectAllByUserId(userId)).thenReturn(expectedHistories);
 
         // When
-        List<PointHistory> result = pointHistoryService.getPointHistory(userId);
+        pointHistoryService.getPointHistory(userId);
 
         // Then
-        assertThat(result).isEqualTo(expectedHistories);
-        assertThat(result).hasSize(2);
+        verify(pointHistoryRepository).selectAllByUserId(userId);
     }
 }
