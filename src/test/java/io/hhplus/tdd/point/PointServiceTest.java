@@ -7,8 +7,6 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
-import io.hhplus.tdd.database.PointHistoryTable;
-
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.*;
@@ -36,10 +34,38 @@ class PointServiceTest {
     private PointService pointService;
 
     private static final long TEST_MAX = 100_000L;
+    private static final long DEFAULT_USER_ID = 1L;
+    private long currentTime;
 
     @BeforeEach
     void setUp() {
         pointService = new PointService(TEST_MAX, userPointRepository, pointHistoryRepository);
+        currentTime = System.currentTimeMillis();
+    }
+
+    // Helper methods for creating test data
+    private UserPoint createUserPoint(long userId, long point) {
+        return new UserPoint(userId, point, currentTime);
+    }
+
+    private PointHistory createPointHistory(long id, long userId, long amount, TransactionType type) {
+        return new PointHistory(id, userId, amount, type, currentTime);
+    }
+
+    // Helper methods for mock setup
+    private void mockUserPointSelect(long userId, long currentBalance) {
+        when(userPointRepository.selectById(userId))
+            .thenReturn(createUserPoint(userId, currentBalance));
+    }
+
+    private void mockUserPointUpdate(long userId, long newBalance) {
+        when(userPointRepository.insertOrUpdate(userId, newBalance))
+            .thenReturn(createUserPoint(userId, newBalance));
+    }
+
+    private void mockPointHistoryInsert(long userId, long amount, TransactionType type) {
+        when(pointHistoryRepository.insert(eq(userId), eq(amount), eq(type), anyLong()))
+            .thenReturn(createPointHistory(1L, userId, amount, type));
     }
 
     /**
@@ -54,18 +80,14 @@ class PointServiceTest {
     @DisplayName("유저 포인트 조회 시 레포지토리에서 조회한 값을 반환해야 한다")
     void getUserPoint_ShouldReturnUserPointFromRepository() {
         // Given
-        long userId = 1L;
         long expectedPoints = 5000L;
-        long currentTime = System.currentTimeMillis();
-        UserPoint userPoint = new UserPoint(userId, expectedPoints, currentTime);
-        // Stub
-        when(userPointRepository.selectById(userId)).thenReturn(userPoint);
+        mockUserPointSelect(DEFAULT_USER_ID, expectedPoints);
 
         // When
-        UserPoint result = pointService.getUserPoint(userId);
+        UserPoint result = pointService.getUserPoint(DEFAULT_USER_ID);
 
         // Then
-        assertThat(result.id()).isEqualTo(userId);
+        assertThat(result.id()).isEqualTo(DEFAULT_USER_ID);
         assertThat(result.point()).isEqualTo(expectedPoints);
         assertThat(result.updateMillis()).isEqualTo(currentTime);
     }
@@ -106,34 +128,26 @@ class PointServiceTest {
     @DisplayName("충전 성공 시, 잔액이 증가하고 CHARGE 타입 거래 내역이 생성되어야 한다")
     void chargeSuccess_IncreasesBalanceAndCreatesHistory() {
         // Given
-        long userId = 1L;
         long currentBalance = 5000L;
         long chargeAmount = 1000L;
         long expectedBalance = 6000L;
 
-        UserPoint currentPoint = new UserPoint(userId, currentBalance, System.currentTimeMillis());
-        UserPoint updatedPoint = new UserPoint(userId, expectedBalance, System.currentTimeMillis());
-        //잔액 증가 Stub
-        when(userPointRepository.selectById(userId)).thenReturn(currentPoint);
-        when(userPointRepository.insertOrUpdate(userId, expectedBalance)).thenReturn(updatedPoint);
-
-        //거래 내역 생성 Stub
-        PointHistory expectedHistory = new PointHistory(1L, userId, chargeAmount, TransactionType.CHARGE, System.currentTimeMillis());
-        when(pointHistoryRepository.insert(eq(userId), eq(chargeAmount), eq(TransactionType.CHARGE), anyLong()))
-            .thenReturn(expectedHistory);
+        mockUserPointSelect(DEFAULT_USER_ID, currentBalance);
+        mockUserPointUpdate(DEFAULT_USER_ID, expectedBalance);
+        mockPointHistoryInsert(DEFAULT_USER_ID, chargeAmount, TransactionType.CHARGE);
 
         // When
-        UserPoint result = pointService.chargePoint(userId, chargeAmount);
+        UserPoint result = pointService.chargePoint(DEFAULT_USER_ID, chargeAmount);
 
         // Then
         //잔액 증가
-        assertThat(result.id()).isEqualTo(userId);
+        assertThat(result.id()).isEqualTo(DEFAULT_USER_ID);
         assertThat(result.point()).isEqualTo(expectedBalance);
-        assertThat(result.updateMillis()).isEqualTo(updatedPoint.updateMillis());
+        assertThat(result.updateMillis()).isEqualTo(currentTime);
 
         //거래 내역 생성
         verify(pointHistoryRepository, times(1)).insert(
-            eq(userId),
+            eq(DEFAULT_USER_ID),
             eq(chargeAmount),
             eq(TransactionType.CHARGE),
             anyLong()
@@ -158,16 +172,14 @@ class PointServiceTest {
     @DisplayName("잔액과 충전 금액의 합이 최대값을 초과하면 예외가 발생하고, 충전 가능 금액이 메시지에 포함되어야 한다")
     void chargePoint_WhenOverflow_ShouldThrowExceptionWithMaxChargeableAmount() {
         // Given
-        long userId = 1L;
         long currentBalance = TEST_MAX - 1L;
         long chargeAmount = 2L;
         long expectedMaxChargeable = 1L;
 
-        UserPoint currentPoint = new UserPoint(userId, currentBalance, System.currentTimeMillis());
-        when(userPointRepository.selectById(userId)).thenReturn(currentPoint);
+        mockUserPointSelect(DEFAULT_USER_ID, currentBalance);
 
         // When & Then
-        assertThatThrownBy(() -> pointService.chargePoint(userId, chargeAmount))
+        assertThatThrownBy(() -> pointService.chargePoint(DEFAULT_USER_ID, chargeAmount))
                 .isInstanceOf(PointException.class)
                 .hasFieldOrPropertyWithValue("errorCode", ErrorCode.POINT_OVERFLOW)
                 .hasMessageContaining(String.valueOf(expectedMaxChargeable));
@@ -181,29 +193,22 @@ class PointServiceTest {
     @DisplayName("잔액과 충전 금액의 합이 최대값과 같으면 충전에 성공한다")
     void chargePoint_WhenSumEqualsMaxBalance_ShouldSucceed() {
         // Given
-        long userId = 1L;
         long currentBalance = TEST_MAX - 1L;
         long chargeAmount = 1L;
         long expectedBalance = TEST_MAX;
 
-        UserPoint currentPoint = new UserPoint(userId, currentBalance, System.currentTimeMillis());
-        UserPoint updatedPoint = new UserPoint(userId, expectedBalance, System.currentTimeMillis());
-
-        when(userPointRepository.selectById(userId)).thenReturn(currentPoint);
-        when(userPointRepository.insertOrUpdate(userId, expectedBalance)).thenReturn(updatedPoint);
-
-        PointHistory expectedHistory = new PointHistory(1L, userId, chargeAmount, TransactionType.CHARGE, System.currentTimeMillis());
-        when(pointHistoryRepository.insert(eq(userId), eq(chargeAmount), eq(TransactionType.CHARGE), anyLong()))
-                .thenReturn(expectedHistory);
+        mockUserPointSelect(DEFAULT_USER_ID, currentBalance);
+        mockUserPointUpdate(DEFAULT_USER_ID, expectedBalance);
+        mockPointHistoryInsert(DEFAULT_USER_ID, chargeAmount, TransactionType.CHARGE);
 
         // When
-        UserPoint result = pointService.chargePoint(userId, chargeAmount);
+        UserPoint result = pointService.chargePoint(DEFAULT_USER_ID, chargeAmount);
 
         // Then
-        assertThat(result.id()).isEqualTo(userId);
+        assertThat(result.id()).isEqualTo(DEFAULT_USER_ID);
         assertThat(result.point()).isEqualTo(TEST_MAX);
         verify(pointHistoryRepository, times(1)).insert(
-                eq(userId),
+                eq(DEFAULT_USER_ID),
                 eq(chargeAmount),
                 eq(TransactionType.CHARGE),
                 anyLong()
@@ -228,31 +233,24 @@ class PointServiceTest {
     @DisplayName("포인트 사용 성공 시, 잔액이 감소하고 USE 타입 거래 내역이 생성되어야 한다")
     void usePoint_success_decreasesBalanceAndCreatesHistory() {
         // Given
-        long userId = 1L;
         long currentBalance = 1000L;
         long useAmount = 999L;
         long expectedBalance = 1L;
 
-        UserPoint currentPoint = new UserPoint(userId, currentBalance, System.currentTimeMillis());
-        UserPoint updatedPoint = new UserPoint(userId, expectedBalance, System.currentTimeMillis());
-
-        when(userPointRepository.selectById(userId)).thenReturn(currentPoint);
-        when(userPointRepository.insertOrUpdate(userId, expectedBalance)).thenReturn(updatedPoint);
-
-        PointHistory expectedHistory = new PointHistory(1L, userId, useAmount, TransactionType.USE, System.currentTimeMillis());
-        when(pointHistoryRepository.insert(eq(userId), eq(useAmount), eq(TransactionType.USE), anyLong()))
-                .thenReturn(expectedHistory);
+        mockUserPointSelect(DEFAULT_USER_ID, currentBalance);
+        mockUserPointUpdate(DEFAULT_USER_ID, expectedBalance);
+        mockPointHistoryInsert(DEFAULT_USER_ID, useAmount, TransactionType.USE);
 
         // When
-        UserPoint result = pointService.usePoint(userId, useAmount);
+        UserPoint result = pointService.usePoint(DEFAULT_USER_ID, useAmount);
 
         // Then
-        assertThat(result.id()).isEqualTo(userId);
+        assertThat(result.id()).isEqualTo(DEFAULT_USER_ID);
         assertThat(result.point()).isEqualTo(expectedBalance);
-        assertThat(result.updateMillis()).isEqualTo(updatedPoint.updateMillis());
+        assertThat(result.updateMillis()).isEqualTo(currentTime);
 
         verify(pointHistoryRepository, times(1)).insert(
-            eq(userId),
+            eq(DEFAULT_USER_ID),
             eq(useAmount),
             eq(TransactionType.USE),
             anyLong()
@@ -267,30 +265,23 @@ class PointServiceTest {
     @DisplayName("예상 잔액이 0인 경우 포인트 사용에 성공한다")
     void usePoint_success_whenBalanceBecomesZero() {
         // Given
-        long userId = 1L;
         long currentBalance = 1000L;
         long useAmount = 1000L;
         long expectedBalance = 0L;
 
-        UserPoint currentPoint = new UserPoint(userId, currentBalance, System.currentTimeMillis());
-        UserPoint updatedPoint = new UserPoint(userId, expectedBalance, System.currentTimeMillis());
-
-        when(userPointRepository.selectById(userId)).thenReturn(currentPoint);
-        when(userPointRepository.insertOrUpdate(userId, expectedBalance)).thenReturn(updatedPoint);
-
-        PointHistory expectedHistory = new PointHistory(1L, userId, useAmount, TransactionType.USE, System.currentTimeMillis());
-        when(pointHistoryRepository.insert(eq(userId), eq(useAmount), eq(TransactionType.USE), anyLong()))
-                .thenReturn(expectedHistory);
+        mockUserPointSelect(DEFAULT_USER_ID, currentBalance);
+        mockUserPointUpdate(DEFAULT_USER_ID, expectedBalance);
+        mockPointHistoryInsert(DEFAULT_USER_ID, useAmount, TransactionType.USE);
 
         // When
-        UserPoint result = pointService.usePoint(userId, useAmount);
+        UserPoint result = pointService.usePoint(DEFAULT_USER_ID, useAmount);
 
         // Then
-        assertThat(result.id()).isEqualTo(userId);
+        assertThat(result.id()).isEqualTo(DEFAULT_USER_ID);
         assertThat(result.point()).isEqualTo(0L);
 
         verify(pointHistoryRepository, times(1)).insert(
-                eq(userId),
+                eq(DEFAULT_USER_ID),
                 eq(useAmount),
                 eq(TransactionType.USE),
                 anyLong()
@@ -306,15 +297,13 @@ class PointServiceTest {
     @DisplayName("잔액이 부족하면 예외가 발생하고, 현재 잔액이 메시지에 포함되어야 한다")
     void usePoint_WithInsufficientBalance_ShouldThrowExceptionWithCurrentBalance() {
         // Given
-        long userId = 1L;
         long currentBalance = 1000L;
         long useAmount = 1001L;
 
-        UserPoint currentPoint = new UserPoint(userId, currentBalance, System.currentTimeMillis());
-        when(userPointRepository.selectById(userId)).thenReturn(currentPoint);
+        mockUserPointSelect(DEFAULT_USER_ID, currentBalance);
 
         // When & Then
-        assertThatThrownBy(() -> pointService.usePoint(userId, useAmount))
+        assertThatThrownBy(() -> pointService.usePoint(DEFAULT_USER_ID, useAmount))
                 .isInstanceOf(PointException.class)
                 .hasFieldOrPropertyWithValue("errorCode", ErrorCode.INSUFFICIENT_POINTS)
                 .hasMessageContaining(String.valueOf(currentBalance));

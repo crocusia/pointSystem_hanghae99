@@ -188,26 +188,51 @@ Controller (@Positive) → Service (비즈니스 로직) → Repository (인터�
 
 ---
 
-### Phase 4: Point History Inquiry Feature
+### Phase 4: Point History Inquiry Feature ✅ COMPLETED
 **Goal:** Implement `GET /point/{id}/histories` endpoint to retrieve point transaction history
 
 **Test Cases:**
-- [ ] Should return empty list for user with no transactions
-- [ ] Should return all transactions for user in chronological order
-- [ ] Should include both CHARGE and USE transactions
-- [ ] Should return correct transaction details (amount, type, timestamp)
-- [ ] Should only return transactions for specified user
+
+*Unit Tests (PointHistoryService):*
+- [x] Should return histories from repository (신규 PointHistoryService - SRP 적용)
 
 **Implementation Steps:**
-1. Implement `getPointHistory(long userId)` in `PointService`
-2. Fetch history from `PointHistoryTable`
-3. Wire service to `PointController.history()` method
-4. Verify all tests pass
+1. [x] Create `PointHistoryService` class (SRP를 위해 PointService에서 분리)
+2. [x] Implement `getPointHistory(long userId)` method
+3. [x] Wire service to `PointController.history()` method
+4. [x] Add `@Positive` validation to history endpoint
+5. [x] Verify all tests pass
 
 **Business Rules:**
 - Return all transactions for the specified user
-- Transactions should be ordered (consider ordering by timestamp or id)
+- User ID must be positive (> 0) - Controller 레이어에서 `@Positive` 검증
+- Return empty list if user has no transactions
 - Each history entry must include: id, userId, amount, type, updateMillis
+
+**Implementation Details:**
+
+*Architecture:*
+```java
+Controller (@Positive) → PointHistoryService (조회 전담) → PointHistoryRepository (인터페이스) → Table (저장소)
+```
+
+*Files Created/Modified:*
+- ✅ `PointHistoryService.java` - 이력 조회 전담 서비스 (SRP 적용)
+- ✅ `PointHistoryServiceTest.java` - 단위 테스트 작성
+- ✅ `PointController.java` - history() 엔드포인트 구현 및 JavaDoc 추가
+
+*Key Features:*
+- ✅ 단일 책임 원칙 (SRP) - PointService와 PointHistoryService 분리
+  - PointService: 포인트 잔액 관리 (조회/충전/사용)
+  - PointHistoryService: 거래 내역 조회
+- ✅ Phase 1 패턴 재사용 (Repository 반환값 그대로 전달)
+- ✅ 향후 확장 가능 (기간별, 타입별, 페이징 조회)
+
+*Test Results:*
+- ✅ 1개 테스트 통과 (Phase 4)
+- ✅ 전체 8개 테스트 통과 (Phase 1: 1개, Phase 2: 3개, Phase 3: 3개, Phase 4: 1개)
+- ✅ Mock 기반 격리된 단위 테스트
+- ✅ Given-When-Then 패턴 적용
 
 ---
 
@@ -342,11 +367,18 @@ class PointControllerTest {
    - [x] ErrorCode.INSUFFICIENT_POINTS 추가
    - [x] Controller.use() 엔드포인트 구현
 
-4. [ ] Phase 4: Point History Inquiry
+4. [x] **Phase 4: Point History Inquiry** ✅ COMPLETED (2025-10-23)
+   - [x] PointHistoryService 생성 (SRP 적용)
+   - [x] getPointHistory() 메서드 구현
+   - [x] Controller.history() 엔드포인트 구현
+   - [x] @Positive validation 추가
+   - [x] 단위 테스트 작성 (1개)
+
 5. [ ] Phase 5: Concurrency & Thread Safety
 6. [x] Exception Handling (Phase 1-3에서 구축 완료)
-7. [ ] Final integration testing
-8. [ ] Code coverage verification
+7. [ ] Test Code Refactoring
+8. [ ] Final integration testing
+9. [ ] Code coverage verification
 
 ### Phase 1 Completion Summary:
 - **Files Created**: 5개
@@ -399,6 +431,31 @@ class PointControllerTest {
   - 사용자 친화적 에러 메시지 (현재 잔액 포함)
   - PointException 리네이밍으로 도메인 명확성 향상
 
+### Phase 4 Completion Summary:
+- **Files Created**: 2개
+  - `PointHistoryService.java`
+  - `PointHistoryServiceTest.java`
+- **Files Modified**: 1개
+  - `PointController.java` (history 엔드포인트 구현, JavaDoc 추가, PointHistoryService DI)
+- **Tests**: 8/8 passing (Phase 1: 1개, Phase 2: 3개, Phase 3: 3개, Phase 4: 1개)
+- **New Features**:
+  - 포인트 내역 조회 기능
+  - SRP 적용 (PointService와 PointHistoryService 분리)
+  - Phase 1 패턴 재사용 (단순 Repository 조회)
+  - 향후 확장 가능한 구조
+
+### Test Code Refactoring (2025-10-23):
+- **Files Modified**: 1개
+  - `PointServiceTest.java` - 테스트 코드 리팩토링
+- **Improvements**:
+  - ✅ 헬퍼 메서드 도입으로 Given 블록 간소화
+    - `createUserPoint()`, `createPointHistory()`
+    - `mockUserPointSelect()`, `mockUserPointUpdate()`, `mockPointHistoryInsert()`
+  - ✅ 공통 상수 추출 (DEFAULT_USER_ID, currentTime)
+  - ✅ 테스트 가독성 및 유지보수성 향상
+  - ✅ DRY 원칙 적용 (중복 코드 제거)
+- **Tests**: 7/7 passing (리팩토링 후 모든 테스트 통과 확인)
+
 ---
 
 ## Notes & Considerations
@@ -433,6 +490,24 @@ class PointControllerTest {
 - 구현 세부사항이 아닌 결과 검증
 - 강결합 회피 (예: empty() 호출 검증 X, 반환값 검증 O)
 - Given-When-Then 패턴으로 명확한 의도 전달
+
+### Lessons Learned (Phase 4 & Test Refactoring):
+
+**1. SRP (Single Responsibility Principle) 적용**
+- PointService: 포인트 잔액 관리 (조회/충전/사용)
+- PointHistoryService: 거래 내역 조회
+- 서비스 클래스 분리로 책임 명확화 및 향후 확장 용이
+
+**2. 테스트 코드도 프로덕션 코드처럼 리팩토링**
+- 헬퍼 메서드 도입으로 중복 제거
+- 공통 상수 추출로 일관성 확보
+- Given 블록 간소화로 테스트 의도 명확화
+- 테스트 유지보수성 향상
+
+**3. 일관된 패턴의 재사용**
+- Phase 1의 단순 조회 패턴을 Phase 4에 재사용
+- 아키텍처 일관성 유지
+- 학습 곡선 감소
 
 ### Potential Issues:
 - In-memory tables have simulated latency (200-300ms) - tests will be slower

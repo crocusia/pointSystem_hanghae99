@@ -1036,4 +1036,340 @@ public UserPoint use(
 
 ---
 
+## 📅 2025-10-23
+
+### 🎯 Step 1 - 4: 포인트 내역 조회 기능 구현
+
+---
+
+## 1️⃣ 요구사항 분석
+
+### 비즈니스 규칙
+- 특정 유저의 모든 포인트 거래 내역 조회
+- 유저 ID는 양수여야 함 (Controller 레이어 검증)
+- 거래 내역이 없는 경우 빈 리스트 반환
+- CHARGE, USE 타입 모두 포함
+
+### 테스트 시나리오
+**정상 케이스:**
+1. 포인트 내역 조회 시 레포지토리에서 조회한 값을 반환
+
+---
+
+## 2️⃣ 설계 결정: SRP 적용
+
+### 문제 인식
+- PointService가 포인트 잔액 관리(조회/충전/사용)와 거래 내역 조회를 모두 담당
+- 단일 책임 원칙(SRP) 위반
+
+### 해결 방안
+**PointHistoryService 분리**
+- **PointService**: 포인트 잔액 관리 (조회/충전/사용)
+- **PointHistoryService**: 거래 내역 조회
+- Phase 1의 getUserPoint() 패턴 재사용 (Repository 반환값 그대로 전달)
+
+---
+
+## 3️⃣ TDD Red Phase
+
+### 실패하는 테스트 작성
+
+**PointHistoryServiceTest.java 생성:**
+```java
+@Test
+@DisplayName("포인트 내역 조회 시 레포지토리에서 조회한 값을 반환해야 한다")
+void getPointHistory_ShouldReturnHistoriesFromRepository() {
+    // Given
+    long userId = 1L;
+    PointHistory history1 = new PointHistory(1L, userId, 1000L, TransactionType.CHARGE, timestamp);
+    PointHistory history2 = new PointHistory(2L, userId, 500L, TransactionType.USE, timestamp + 1000L);
+    List<PointHistory> expectedHistories = List.of(history1, history2);
+
+    when(pointHistoryRepository.selectAllByUserId(userId)).thenReturn(expectedHistories);
+
+    // When
+    List<PointHistory> result = pointHistoryService.getPointHistory(userId);
+
+    // Then
+    assertThat(result).isEqualTo(expectedHistories);
+    assertThat(result).hasSize(2);
+}
+```
+
+**테스트 결과:**
+- ❌ 1개 실패 (컴파일 에러)
+  - `PointHistoryService` 클래스 미구현
+  - `getPointHistory()` 메서드 미정의
+
+---
+
+## 4️⃣ TDD Green Phase
+
+### 최소 구현
+
+**1. PointHistoryService.java 생성**
+```java
+@Service
+public class PointHistoryService {
+
+    private final PointHistoryRepository pointHistoryRepository;
+
+    public PointHistoryService(PointHistoryRepository pointHistoryRepository) {
+        this.pointHistoryRepository = pointHistoryRepository;
+    }
+
+    /**
+     * 특정 유저의 포인트 거래 내역을 조회합니다.
+     * <p>
+     * 유저 ID 검증은 Controller 레이어에서 {@code @Positive} 어노테이션을 통해 수행되므로,
+     * 이 메서드는 항상 유효한(양수) userId를 받습니다.
+     * 거래 내역이 없는 경우 빈 리스트가 반환됩니다.
+     *
+     * @param userId 조회할 유저 ID (양수, Controller 레이어에서 검증됨)
+     * @return 유저의 거래 내역 리스트 (거래 내역이 없으면 빈 리스트)
+     */
+    public List<PointHistory> getPointHistory(long userId) {
+        return pointHistoryRepository.selectAllByUserId(userId);
+    }
+}
+```
+
+**2. PointController 수정**
+```java
+private final PointHistoryService pointHistoryService;
+
+public PointController(PointService pointService, PointHistoryService pointHistoryService) {
+    this.pointService = pointService;
+    this.pointHistoryService = pointHistoryService;
+}
+
+/**
+ * 특정 유저의 포인트 충전/이용 내역을 조회합니다.
+ * <p>
+ * 유저 ID는 {@code @Positive} 어노테이션으로 검증되며, 양수가 아닌 경우 400 Bad Request를 반환합니다.
+ * 거래 내역이 없는 경우 빈 리스트를 반환합니다.
+ *
+ * @param id 조회할 유저 ID (양수만 허용)
+ * @return 유저의 포인트 거래 내역 리스트
+ */
+@GetMapping("{id}/histories")
+public List<PointHistory> history(
+        @PathVariable @Positive long id
+) {
+    return pointHistoryService.getPointHistory(id);
+}
+```
+
+**테스트 결과:**
+- ✅ 1개 통과 (Phase 4)
+- ✅ 전체 8개 통과 (Phase 1: 1개, Phase 2: 3개, Phase 3: 3개, Phase 4: 1개)
+
+---
+
+## 5️⃣ TDD Refactor Phase - 테스트 코드 리팩토링
+
+### 별도 작업: PointServiceTest 리팩토링
+
+**문제**: Given 블록에 중복 코드 많음
+- `System.currentTimeMillis()` 반복 호출
+- UserPoint, PointHistory 객체 생성 반복
+- Mock 설정 패턴 반복
+
+**해결**:
+
+**1. 공통 상수 및 필드 추가**
+```java
+private static final long DEFAULT_USER_ID = 1L;
+private long currentTime;
+
+@BeforeEach
+void setUp() {
+    pointService = new PointService(TEST_MAX, userPointRepository, pointHistoryRepository);
+    currentTime = System.currentTimeMillis();
+}
+```
+
+**2. 헬퍼 메서드 - 테스트 데이터 생성**
+```java
+private UserPoint createUserPoint(long userId, long point) {
+    return new UserPoint(userId, point, currentTime);
+}
+
+private PointHistory createPointHistory(long id, long userId, long amount, TransactionType type) {
+    return new PointHistory(id, userId, amount, type, currentTime);
+}
+```
+
+**3. 헬퍼 메서드 - Mock 설정**
+```java
+private void mockUserPointSelect(long userId, long currentBalance) {
+    when(userPointRepository.selectById(userId))
+        .thenReturn(createUserPoint(userId, currentBalance));
+}
+
+private void mockUserPointUpdate(long userId, long newBalance) {
+    when(userPointRepository.insertOrUpdate(userId, newBalance))
+        .thenReturn(createUserPoint(userId, newBalance));
+}
+
+private void mockPointHistoryInsert(long userId, long amount, TransactionType type) {
+    when(pointHistoryRepository.insert(eq(userId), eq(amount), eq(type), anyLong()))
+        .thenReturn(createPointHistory(1L, userId, amount, type));
+}
+```
+
+**4. 테스트 코드 리팩토링 적용 예시**
+
+**Before:**
+```java
+@Test
+void chargeSuccess_IncreasesBalanceAndCreatesHistory() {
+    // Given
+    long userId = 1L;
+    long currentBalance = 5000L;
+    long chargeAmount = 1000L;
+    long expectedBalance = 6000L;
+
+    UserPoint currentPoint = new UserPoint(userId, currentBalance, System.currentTimeMillis());
+    UserPoint updatedPoint = new UserPoint(userId, expectedBalance, System.currentTimeMillis());
+
+    when(userPointRepository.selectById(userId)).thenReturn(currentPoint);
+    when(userPointRepository.insertOrUpdate(userId, expectedBalance)).thenReturn(updatedPoint);
+
+    PointHistory expectedHistory = new PointHistory(1L, userId, chargeAmount, TransactionType.CHARGE, System.currentTimeMillis());
+    when(pointHistoryRepository.insert(eq(userId), eq(chargeAmount), eq(TransactionType.CHARGE), anyLong()))
+        .thenReturn(expectedHistory);
+
+    // When
+    UserPoint result = pointService.chargePoint(userId, chargeAmount);
+
+    // Then
+    assertThat(result.id()).isEqualTo(userId);
+    assertThat(result.point()).isEqualTo(expectedBalance);
+    assertThat(result.updateMillis()).isEqualTo(updatedPoint.updateMillis());
+}
+```
+
+**After:**
+```java
+@Test
+void chargeSuccess_IncreasesBalanceAndCreatesHistory() {
+    // Given
+    long currentBalance = 5000L;
+    long chargeAmount = 1000L;
+    long expectedBalance = 6000L;
+
+    mockUserPointSelect(DEFAULT_USER_ID, currentBalance);
+    mockUserPointUpdate(DEFAULT_USER_ID, expectedBalance);
+    mockPointHistoryInsert(DEFAULT_USER_ID, chargeAmount, TransactionType.CHARGE);
+
+    // When
+    UserPoint result = pointService.chargePoint(DEFAULT_USER_ID, chargeAmount);
+
+    // Then
+    assertThat(result.id()).isEqualTo(DEFAULT_USER_ID);
+    assertThat(result.point()).isEqualTo(expectedBalance);
+    assertThat(result.updateMillis()).isEqualTo(currentTime);
+}
+```
+
+**효과**:
+- Given 블록 간소화 (15줄 → 5줄)
+- 테스트 의도 명확화
+- 중복 코드 제거 (DRY 원칙)
+- 유지보수성 향상 (Mock 패턴 변경 시 헬퍼 메서드만 수정)
+- 일관성 확보 (currentTime 통일)
+
+**테스트 결과:**
+- ✅ 7/7 passing (리팩토링 후에도 모든 테스트 통과)
+
+---
+
+## 6️⃣ 최종 구현 결과
+
+### 주요 성과
+
+✅ **SRP (Single Responsibility Principle) 적용**
+- PointService: 포인트 잔액 관리
+- PointHistoryService: 거래 내역 조회
+- 서비스 클래스 책임 명확화
+
+✅ **Phase 1 패턴 재사용**
+- 단순 조회 기능은 Repository 반환값 그대로 전달
+- 아키텍처 일관성 유지
+
+✅ **향후 확장 가능한 구조**
+- 기간별 조회, 타입별 필터링, 페이징 등 추가 용이
+- PointHistoryService만 수정하면 됨
+
+✅ **테스트 코드 품질 향상**
+- 헬퍼 메서드 도입으로 가독성 대폭 향상
+- DRY 원칙 적용
+- 유지보수성 향상
+
+### 기술 스택
+- Java 17
+- Spring Boot 3.2.0
+- JUnit 5 + Mockito + AssertJ
+
+---
+
+## 🔄 리팩토링 히스토리
+
+| 순서 | 리팩토링 내용 | 목적 |
+|------|--------------|------|
+| 1 | PointHistoryService 분리 | SRP 적용, 책임 명확화 |
+| 2 | Phase 1 패턴 재사용 | 아키텍처 일관성, 단순성 유지 |
+| 3 | PointServiceTest 헬퍼 메서드 도입 | 테스트 가독성, DRY 원칙 |
+| 4 | 공통 상수 추출 (DEFAULT_USER_ID, currentTime) | 테스트 일관성, 유지보수성 |
+| 5 | Given 블록 간소화 | 테스트 의도 명확화 |
+
+---
+
+## 📝 향후 개선 사항
+
+### Priority 1: PointHistoryService 확장
+- 기간별 조회 (startDate, endDate)
+- 타입별 필터링 (CHARGE/USE)
+- 페이징 처리
+- 정렬 옵션 (최신순, 오래된순, 금액순)
+
+### Priority 2: 다음 기능 구현
+- [ ] 동시성 처리 (Phase 5)
+- [ ] 통합 테스트 작성
+- [ ] 코드 커버리지 검증
+
+---
+
+## 💡 배운 점 (Lessons Learned)
+
+**1. SRP의 실용적 적용**
+- 처음부터 완벽한 분리보다 필요시점에 분리
+- Phase 4에서 PointHistoryService를 분리한 이유:
+  - 포인트 잔액 관리와 내역 조회는 서로 다른 책임
+  - 향후 내역 조회 기능 확장 시 PointService 영향 없음
+  - 테스트 격리 및 유지보수성 향상
+
+**2. 테스트 코드도 리팩토링 대상**
+- Given 블록 중복은 프로덕션 코드 중복만큼 해로움
+- 헬퍼 메서드 도입으로 테스트 가독성 대폭 향상
+- 테스트 코드 품질 = 프로덕션 코드 품질
+
+**3. 일관된 패턴의 힘**
+- Phase 1의 단순 조회 패턴을 Phase 4에 재사용
+- 새로운 기능도 기존 패턴을 따르면 안정적
+- 학습 곡선 감소
+
+**4. 헬퍼 메서드 명명 규칙**
+- `create*()`: 테스트 데이터 생성
+- `mock*()`: Mock 설정
+- 명확한 네이밍으로 의도 파악 용이
+
+**5. 점진적 개선의 가치**
+- Phase 1-3 구현 → Phase 4 기능 추가 → 테스트 코드 리팩토링
+- 한 번에 완벽하게 하려 하지 말고 단계적 개선
+- 각 단계마다 테스트 통과 확인으로 안정성 보장
+
+---
+
 *Last Updated: 2025-10-23*
