@@ -1668,4 +1668,472 @@ void usePoint_success_decreasesBalanceAndCreatesHistory() {
 
 ---
 
+## 📅 2025-10-24
+
+### 🎯 Step 2: 동시성 제어 구현 (Phase 5)
+
+---
+
+## 1️⃣ 요구사항 분석
+
+### 동시성 문제 식별
+- **문제**: In-memory 테이블 (HashMap, ArrayList)은 스레드 안전하지 않음
+- **위험**: 동일 사용자의 동시 요청 시 Race Condition 발생 가능
+  - Lost Update: 두 스레드가 동시에 잔액을 읽고 업데이트 시 한 쪽 업데이트 손실
+  - 데이터 정합성 깨짐: 실제 충전/사용 횟수와 최종 잔액 불일치
+
+### 비즈니스 요구사항
+- 동일 사용자의 동시 요청은 순차적으로 처리 (직렬화)
+- 서로 다른 사용자의 요청은 병렬로 처리 (성능 최적화)
+- 충전/사용 순서 보장 (FIFO)
+- 잔액 부족, 상한선 초과 시에도 데이터 정합성 유지
+
+### 테스트 시나리오
+**동시성 시나리오:**
+1. 동일 사용자의 동시 충전 요청 → 순차 처리, 정확한 최종 잔액
+2. 서로 다른 사용자의 동시 요청 → 병렬 처리, 독립적 실행
+3. 동시 사용 요청 + 잔액 부족 → 일부 실패해도 데이터 정합성 유지
+4. 동시 충전 요청 + 상한선 초과 → 일부 실패해도 데이터 정합성 유지
+
+---
+
+## 2️⃣ 설계 결정
+
+### 동시성 제어 전략 비교
+
+| 전략 | 장점 | 단점 | 선택 여부 |
+|------|------|------|----------|
+| `synchronized` | 간단, 자동 unlock | Fair 정책 없음, 유연성 낮음 | ❌ |
+| `ReentrantLock` | Fair 정책 지원, 명시적 제어 | 명시적 unlock 필요 | ✅ |
+| `@Transactional` | 선언적, DB 지원 | In-memory 환경 미지원 | ❌ |
+
+### 선택: ReentrantLock (Fair Lock)
+**이유:**
+1. **Fair 정책**: 충전/사용 순서가 중요하므로 FIFO 보장 필요
+2. **사용자별 Lock**: ConcurrentHashMap으로 사용자별 독립적인 Lock 관리
+3. **성능 최적화**: 다른 사용자는 블로킹되지 않음
+4. **명시적 제어**: try-finally로 unlock 보장
+
+### 아키텍처 설계
+```java
+PointService {
+    // 사용자별 Lock 맵
+    private final ConcurrentHashMap<Long, ReentrantLock> userLocks;
+
+    // Lock 획득
+    private ReentrantLock getLockForUser(long userId) {
+        return userLocks.computeIfAbsent(userId, key -> new ReentrantLock(true));
+    }
+
+    // 충전 로직 (Lock 적용)
+    public UserPoint chargePoint(long userId, long amount) {
+        ReentrantLock lock = getLockForUser(userId);
+        lock.lock();
+        try {
+            // Critical Section: read-check-update
+        } finally {
+            lock.unlock();
+        }
+    }
+}
+```
+
+---
+
+## 3️⃣ TDD Red Phase
+
+### 실패하는 테스트 작성
+
+**PointServiceConcurrencyTest.java 생성:**
+
+**Test 1: 동일 사용자 동시 충전**
+```java
+@Test
+@DisplayName("동일 사용자의 동시 충전 요청은 순차적으로 처리되어 정확한 최종 잔액을 반환해야 한다")
+void concurrentCharge_SameUser_ShouldProcessSequentially() throws InterruptedException {
+    // Given: userId, 10번 충전 (각 1000원)
+    // When: 10개 스레드가 동시에 충전 시작
+    // Then: 최종 잔액 = 10,000원, 거래 내역 10개
+}
+```
+
+**Test 2: 다른 사용자 병렬 처리**
+```java
+@Test
+@DisplayName("서로 다른 사용자의 동시 요청은 독립적으로 병렬 처리되어야 한다")
+void concurrentOperations_DifferentUsers_ShouldProcessIndependently() throws InterruptedException {
+    // Given: 5명의 사용자
+    // When: 5명이 동시에 충전 (각 1000원)
+    // Then: 각 사용자 잔액 = 1000원, 거래 내역 각 1개
+}
+```
+
+**Test 3: 잔액 부족 시 데이터 정합성**
+```java
+@Test
+@DisplayName("동시 사용 요청 시 잔액 부족으로 일부 요청이 실패해도 데이터 정합성이 유지되어야 한다")
+void concurrentUse_InsufficientBalance_ShouldMaintainConsistency() throws InterruptedException {
+    // Given: 초기 잔액 5000원, 10번 사용 요청 (각 1000원)
+    // When: 10개 스레드가 동시에 사용 시도
+    // Then: 5번 성공, 5번 실패, 최종 잔액 0원, 거래 내역 5개
+}
+```
+
+**Test 4: 상한선 초과 시 데이터 정합성**
+```java
+@Test
+@DisplayName("동시 충전 요청 시 최대값 초과로 일부 요청이 실패해도 데이터 정합성이 유지되어야 한다")
+void concurrentCharge_MaxPointExceeded_ShouldMaintainConsistency() throws InterruptedException {
+    // Given: 초기 잔액 9000원, 10번 충전 요청 (각 500원)
+    // When: 10개 스레드가 동시에 충전 시도
+    // Then: 2번 성공, 8번 실패, 최종 잔액 10,000원, 거래 내역 2개
+}
+```
+
+**헬퍼 메서드 설계:**
+```java
+// 동시 실행 헬퍼 (CountDownLatch 기반)
+private void executeConcurrently(int threadCount, Runnable task) throws InterruptedException {
+    ExecutorService executorService = Executors.newFixedThreadPool(threadCount);
+    CountDownLatch startLatch = new CountDownLatch(1);  // 동시 시작 신호
+    CountDownLatch endLatch = new CountDownLatch(threadCount);  // 완료 대기
+
+    for (int i = 0; i < threadCount; i++) {
+        executorService.submit(() -> {
+            try {
+                startLatch.await();  // 모든 스레드가 대기
+                task.run();
+            } finally {
+                endLatch.countDown();
+            }
+        });
+    }
+
+    startLatch.countDown();  // 모든 작업 동시 시작!
+    awaitAndShutdown(executorService, endLatch);
+}
+
+// 예외 수집 헬퍼
+private List<Throwable> executeConcurrentlyWithExceptions(int threadCount, Runnable task) {
+    // 예외를 CopyOnWriteArrayList에 수집
+}
+
+// ExecutorService 종료 공통 로직
+private void awaitAndShutdown(ExecutorService executorService, CountDownLatch endLatch) {
+    // 타임아웃 검증 + shutdown
+}
+```
+
+**테스트 결과:**
+- ❌ 4개 실패 (Lock 미구현 시 Race Condition 발생)
+
+---
+
+## 4️⃣ TDD Green Phase
+
+### 최소 구현
+
+**1. PointService에 동시성 제어 추가**
+
+```java
+@Service
+public class PointService {
+
+    // 사용자별 Lock 맵 (ConcurrentHashMap 사용)
+    private final ConcurrentHashMap<Long, ReentrantLock> userLocks = new ConcurrentHashMap<>();
+
+    /**
+     * 특정 사용자의 Lock 객체를 가져옵니다.
+     * Lock이 존재하지 않으면 새로운 Fair ReentrantLock을 생성합니다.
+     */
+    private ReentrantLock getLockForUser(long userId) {
+        return userLocks.computeIfAbsent(userId, key -> new ReentrantLock(true));
+    }
+
+    public UserPoint chargePoint(long userId, long amount) {
+        ReentrantLock lock = getLockForUser(userId);
+        lock.lock();
+        try {
+            // 1. 현재 포인트 조회
+            UserPoint currentPoint = userPointRepository.selectById(userId);
+            long currentBalance = currentPoint.point();
+
+            // 2. 최대값 검증
+            validateMaxPoint(currentBalance, amount);
+
+            // 3. 새로운 잔액 계산
+            long newBalance = currentBalance + amount;
+
+            // 4. 포인트 업데이트
+            UserPoint updatedPoint = userPointRepository.insertOrUpdate(userId, newBalance);
+
+            // 5. 거래 내역 기록
+            pointHistoryRepository.insert(userId, amount, TransactionType.CHARGE, System.currentTimeMillis());
+
+            // 6. 업데이트된 포인트 반환
+            return updatedPoint;
+        } finally {
+            lock.unlock();
+        }
+    }
+
+    public UserPoint usePoint(long userId, long amount) {
+        ReentrantLock lock = getLockForUser(userId);
+        lock.lock();
+        try {
+            // Critical Section: read-check-update
+            // (동일 로직)
+        } finally {
+            lock.unlock();
+        }
+    }
+}
+```
+
+**2. JavaDoc 업데이트**
+```java
+/**
+ * 특정 유저의 포인트를 충전합니다.
+ * <p>
+ * <strong>동시성 제어:</strong> 동일 사용자의 동시 요청은 ReentrantLock을 통해 직렬화되어 처리됩니다.
+ * 서로 다른 사용자의 요청은 독립적으로 병렬 처리됩니다.
+ * ...
+ */
+```
+
+**테스트 결과:**
+- ✅ 4개 통과 (Phase 5 동시성 테스트)
+- ✅ 기존 5개 단위 테스트도 통과 (Phase 1-3)
+
+---
+
+## 5️⃣ TDD Refactor Phase
+
+### 리팩토링 1: 테스트 코드 개선
+
+**문제**: Given 블록에 중복 코드, 매직 넘버 산재
+
+**해결**:
+
+**1. 상수 추출**
+```java
+// 테스트 상수
+private static final long TEST_MAX_POINT = 10000L;
+private static final long TIMEOUT_SECONDS = 30L;
+
+// 테스트 데이터 상수
+private static final long BALANCE_SUFFICIENT = 5000L;
+private static final long BALANCE_NEAR_MAX = 9000L;
+private static final long AMOUNT_CHARGE = 1000L;
+private static final long AMOUNT_USE = 1000L;
+private static final long AMOUNT_OVERFLOW_TEST = 500L;
+```
+
+**2. 테스트 격리 - 고유 ID 생성기**
+```java
+// 테스트 격리를 위한 고유 사용자 ID 생성기
+private static final AtomicLong USER_ID_GENERATOR = new AtomicLong(1);
+
+private long getUniqueUserId() {
+    return USER_ID_GENERATOR.getAndIncrement();
+}
+```
+
+**3. 헬퍼 메서드 개선**
+- `executeConcurrently()`: 기본 동시 실행
+- `executeConcurrentlyWithExceptions()`: 예외 수집
+- `awaitAndShutdown()`: ExecutorService 종료 + 타임아웃 검증
+
+**4. 주석 개선**
+```java
+/**
+ * 테스트 설계)
+ * 실제 운영 환경에서 여러 요청이 "동시에" 들어오는 상황을 재현하여
+ * 동일 사용자의 요청이 Lock에 의해 순차적으로 처리되는지 검증
+ *
+ * case 1) 동일 사용자의 동시 충전 요청은 순차적으로 처리, 정확한 결과 반환
+ */
+```
+
+**효과**:
+- 테스트 가독성 대폭 향상
+- 매직 넘버 제거
+- 테스트 간 간섭 방지 (고유 ID)
+- 일관된 타임아웃 관리
+
+---
+
+## 6️⃣ 최종 구현 결과
+
+### 주요 성과
+
+✅ **ReentrantLock 기반 동시성 제어**
+- Fair Lock으로 FIFO 순서 보장
+- 사용자별 독립적인 Lock (ConcurrentHashMap)
+- try-finally로 안전한 unlock
+
+✅ **CountDownLatch 기반 동시성 테스트**
+- 진정한 "동시 실행" 시뮬레이션
+- startLatch로 모든 스레드 동시 시작
+- endLatch로 완료 대기
+
+✅ **데이터 정합성 보장**
+- 동시 충전: 최종 잔액 정확성 검증
+- 잔액 부족: 성공/실패 건수 + 최종 잔액 정합성
+- 상한선 초과: 성공/실패 건수 + 최종 잔액 정합성
+
+✅ **성능 최적화**
+- 사용자별 Lock으로 병렬성 확보
+- 다른 사용자 요청은 블로킹되지 않음
+
+### 기술 스택
+- Java 17
+- Spring Boot 3.2.0
+- ReentrantLock (Fair Lock)
+- ConcurrentHashMap
+- CountDownLatch
+- ExecutorService
+- JUnit 5 + AssertJ
+
+---
+
+## 🔄 리팩토링 히스토리
+
+| 순서 | 리팩토링 내용 | 목적 |
+|------|--------------|------|
+| 1 | ConcurrentHashMap + ReentrantLock 도입 | 사용자별 독립적인 동시성 제어 |
+| 2 | Fair Lock 정책 적용 | FIFO 순서 보장 (충전/사용 순서 중요) |
+| 3 | try-finally 패턴 | unlock 보장 (예외 발생 시에도 안전) |
+| 4 | CountDownLatch 헬퍼 메서드 | 진정한 동시 실행 시뮬레이션 |
+| 5 | AtomicLong 고유 ID 생성기 | 테스트 격리, 병렬 실행 안전성 |
+| 6 | 상수 추출 및 주석 개선 | 테스트 가독성 향상 |
+| 7 | JavaDoc 업데이트 | 동시성 제어 명시 |
+
+---
+
+## 📊 테스트 결과
+
+### 동시성 테스트 (PointServiceConcurrencyTest)
+- **Test 1**: 동일 사용자 동시 충전 (10 스레드) ✅
+  - 최종 잔액: 10,000원
+  - 거래 내역: 10개
+- **Test 2**: 다른 사용자 병렬 처리 (5 사용자) ✅
+  - 각 사용자 잔액: 1,000원
+  - 각 사용자 거래 내역: 1개
+- **Test 3**: 잔액 부족 시 정합성 (10 스레드) ✅
+  - 성공: 5건, 실패: 5건
+  - 최종 잔액: 0원
+  - 거래 내역: 5개
+- **Test 4**: 상한선 초과 시 정합성 (10 스레드) ✅
+  - 성공: 2건, 실패: 8건
+  - 최종 잔액: 10,000원
+  - 거래 내역: 2개
+
+### 전체 테스트
+- **Phase 1-3**: 5개 단위 테스트 ✅
+- **Phase 4**: 1개 단위 테스트 ✅
+- **Phase 5**: 4개 동시성 테스트 ✅
+- **Total**: 10/10 passing
+
+---
+
+## 💡 배운 점 (Lessons Learned)
+
+**1. ReentrantLock vs synchronized**
+- `synchronized`: 간단하지만 Fair 정책 없음
+- `ReentrantLock`: Fair 정책 지원, 명시적 제어 가능
+- Fair Lock 선택 이유: 충전/사용 순서 보장 필요
+- try-finally 패턴 필수: unlock 보장 (예외 시에도 안전)
+
+**2. 사용자별 Lock 전략의 효과**
+- ConcurrentHashMap으로 사용자별 독립적인 Lock 관리
+- computeIfAbsent()로 Lock 생성 시 동시성 안전성 보장
+- 동일 사용자는 직렬화, 다른 사용자는 병렬 처리
+- 성능 최적화: 전체 메서드를 synchronized하지 않음
+
+**3. CountDownLatch의 중요성**
+- 단순 반복문으로는 "진정한 동시 실행" 재현 불가
+- startLatch로 모든 스레드가 동시에 시작하도록 보장
+- endLatch로 모든 작업 완료 대기
+- 실제 운영 환경의 Race Condition 정확히 재현
+
+**4. 데이터 정합성 검증**
+- Lock 없이는 Lost Update 발생 (최종 잔액 < 기대값)
+- Lock으로 원자성 보장: read-check-update가 하나의 트랜잭션처럼 동작
+- 예외 발생 시에도 정합성 유지: 성공 건수 + 실패 건수 = 전체 요청 수
+
+**5. 테스트 격리의 중요성**
+- AtomicLong으로 테스트마다 고유 ID 생성
+- 이전 테스트의 잔액이 다음 테스트에 영향 미치지 않음
+- 병렬 테스트 실행 시에도 안전
+- In-memory 저장소의 특성 고려
+
+**6. Fair Lock의 Trade-off**
+- 장점: FIFO 순서 보장, 예측 가능한 동작
+- 단점: 약간의 성능 오버헤드 (Non-fair보다 느림)
+- 선택 기준: 순서가 중요한 비즈니스 로직 (충전/사용)
+
+**7. try-finally 패턴의 안전성**
+```java
+lock.lock();
+try {
+    // Critical Section
+} finally {
+    lock.unlock();  // 예외 발생 시에도 반드시 실행
+}
+```
+- unlock을 finally에 배치하여 데드락 방지
+- 예외 발생 시에도 다른 스레드가 Lock 획득 가능
+- 안전한 동시성 제어의 핵심 패턴
+
+**8. ConcurrentHashMap.computeIfAbsent()의 활용**
+```java
+userLocks.computeIfAbsent(userId, key -> new ReentrantLock(true));
+```
+- Lock 생성 자체도 동시성 안전해야 함
+- computeIfAbsent()는 원자적으로 동작
+- 동일 userId에 대해 Lock이 중복 생성되지 않음
+
+---
+
+## 📝 향후 개선 사항
+
+### Priority 1: Lock 메모리 관리
+- 현재: 사용자별 Lock이 메모리에 계속 누적
+- 개선: LRU 캐시 또는 WeakHashMap 고려
+- 실제 환경: 비활성 사용자의 Lock 제거 필요
+
+### Priority 2: Lock 타임아웃
+- 현재: 무한 대기 (lock.lock())
+- 개선: tryLock(timeout, unit) 고려
+- 효과: 데드락 방지, 응답 시간 보장
+
+### Priority 3: 다음 단계
+- [ ] Controller 통합 테스트
+- [ ] 코드 커버리지 검증
+- [ ] 성능 테스트 (처리량, 응답 시간)
+
+---
+
+## 📚 참고 자료
+
+- [Java Concurrency in Practice - Chapter 13 (Explicit Locks)](https://jcip.net/)
+- [ReentrantLock JavaDoc](https://docs.oracle.com/en/java/javase/17/docs/api/java.base/java/util/concurrent/locks/ReentrantLock.html)
+- [CountDownLatch JavaDoc](https://docs.oracle.com/en/java/javase/17/docs/api/java.base/java/util/concurrent/CountDownLatch.html)
+- [ConcurrentHashMap JavaDoc](https://docs.oracle.com/en/java/javase/17/docs/api/java.base/java/util/concurrent/ConcurrentHashMap.html)
+
+---
+
+## 📈 다음 단계
+
+1. ✅ 포인트 조회 기능 완료 (Phase 1)
+2. ✅ 포인트 충전 기능 완료 (Phase 2)
+3. ✅ 포인트 사용 기능 완료 (Phase 3)
+4. ✅ 포인트 내역 조회 완료 (Phase 4)
+5. ✅ 동시성 처리 완료 (Phase 5) ✨
+6. ⏭️ Controller 통합 테스트
+7. ⏭️ 코드 커버리지 검증
+
+---
+
 *Last Updated: 2025-10-24*

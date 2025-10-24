@@ -236,26 +236,73 @@ Controller (@Positive) → PointHistoryService (조회 전담) → PointHistoryR
 
 ---
 
-### Phase 5: Concurrency & Thread Safety
+### Phase 5: Concurrency & Thread Safety ✅ COMPLETED
 **Goal:** Ensure thread-safe operations for concurrent point transactions
 
 **Test Cases:**
-- [ ] Should handle concurrent charges to same user correctly
-- [ ] Should handle concurrent uses from same user correctly
-- [ ] Should handle mixed concurrent charge/use operations correctly
-- [ ] Should prevent race conditions in balance updates
-- [ ] Final balance should be consistent after concurrent operations
+
+*Concurrency Tests (PointServiceConcurrencyTest):*
+- [x] Should handle concurrent charges to same user correctly (동일 사용자 동시 충전 - 순차 처리)
+- [x] Should handle concurrent operations for different users independently (다른 사용자 병렬 처리)
+- [x] Should maintain consistency when concurrent use operations fail due to insufficient balance (잔액 부족 시 데이터 정합성)
+- [x] Should maintain consistency when concurrent charge operations fail due to max point exceeded (상한선 초과 시 데이터 정합성)
 
 **Implementation Steps:**
-1. Identify critical sections in `PointService`
-2. Implement synchronization mechanism (consider `synchronized` or `ReentrantLock`)
-3. Add integration tests for concurrent scenarios
-4. Verify thread safety through stress testing
+1. [x] Identify critical sections in `PointService` (chargePoint, usePoint)
+2. [x] Implement synchronization mechanism using `ReentrantLock` with fair policy
+3. [x] Use `ConcurrentHashMap<Long, ReentrantLock>` for user-level locks
+4. [x] Add concurrency integration tests for concurrent scenarios
+5. [x] Verify thread safety through stress testing
 
 **Concurrency Strategy:**
-- Use user-level locking to prevent race conditions
-- Consider using `ConcurrentHashMap` with user ID as key for locks
-- Ensure atomic read-check-update operations
+- ✅ User-level locking to prevent race conditions (ConcurrentHashMap<Long, ReentrantLock>)
+- ✅ Fair ReentrantLock for FIFO ordering (순서 보장)
+- ✅ Lock acquisition in try-finally blocks for safety
+- ✅ Atomic read-check-update operations within lock
+- ✅ Independent locks per user for parallel processing
+
+**Implementation Details:**
+
+*Architecture:*
+```java
+PointService {
+    - ConcurrentHashMap<Long, ReentrantLock> userLocks
+    - ReentrantLock getLockForUser(userId)
+
+    chargePoint(userId, amount) {
+        lock.lock();
+        try {
+            // Critical section: read-check-update
+        } finally {
+            lock.unlock();
+        }
+    }
+}
+```
+
+*Files Created/Modified:*
+- ✅ `PointService.java` - ReentrantLock 동시성 제어 구현
+  - ConcurrentHashMap<Long, ReentrantLock> userLocks 필드 추가
+  - getLockForUser(userId) 메서드 추가
+  - chargePoint(), usePoint()에 lock/unlock 적용
+  - JavaDoc에 동시성 제어 설명 추가
+- ✅ `PointServiceConcurrencyTest.java` - 동시성 통합 테스트 작성
+  - executeConcurrently() 헬퍼 메서드 (CountDownLatch 기반)
+  - executeConcurrentlyWithExceptions() 헬퍼 메서드 (예외 수집)
+  - awaitAndShutdown() 공통 메서드 (ExecutorService 종료)
+  - 4개 동시성 시나리오 테스트
+
+*Key Features:*
+- ✅ 사용자별 독립적인 Lock (ConcurrentHashMap.computeIfAbsent)
+- ✅ Fair Lock으로 순서 보장 (new ReentrantLock(true))
+- ✅ 동일 사용자 요청은 직렬화, 다른 사용자는 병렬 처리
+- ✅ 데이터 정합성 보장 (잔액 부족, 상한선 초과 케이스)
+- ✅ CountDownLatch로 진정한 동시 실행 시뮬레이션
+
+*Test Results:*
+- ✅ 4개 동시성 테스트 통과 (Phase 5)
+- ✅ 정합성 검증: 동시 충전/사용 시 최종 잔액 정확성
+- ✅ 예외 처리 검증: 일부 실패해도 데이터 일관성 유지
 
 ---
 
@@ -374,9 +421,14 @@ class PointControllerTest {
    - [x] @Positive validation 추가
    - [x] 단위 테스트 작성 (1개)
 
-5. [ ] Phase 5: Concurrency & Thread Safety
+5. [x] **Phase 5: Concurrency & Thread Safety** ✅ COMPLETED (2025-10-24)
+   - [x] ReentrantLock 기반 동시성 제어 구현
+   - [x] ConcurrentHashMap으로 사용자별 Lock 관리
+   - [x] Fair Lock 정책 적용 (순서 보장)
+   - [x] 동시성 통합 테스트 작성 (4개)
+   - [x] CountDownLatch 기반 진정한 동시 실행 시뮬레이션
 6. [x] Exception Handling (Phase 1-3에서 구축 완료)
-7. [ ] Test Code Refactoring
+7. [x] Test Code Refactoring (2025-10-23, 2025-10-24 완료)
 8. [ ] Final integration testing
 9. [ ] Code coverage verification
 
@@ -474,6 +526,31 @@ class PointControllerTest {
   - 행위 검증으로 테스트 의도 명확화 및 간소화
 - **Tests**: 5/5 passing (Phase 1: 1개, Phase 2: 2개, Phase 3: 2개)
 
+### Phase 5 Completion Summary:
+- **Files Created**: 1개
+  - `PointServiceConcurrencyTest.java` - 동시성 통합 테스트
+- **Files Modified**: 1개
+  - `PointService.java` - ReentrantLock 동시성 제어 추가
+- **Tests**: 4/4 passing (Phase 5 동시성 테스트)
+- **New Features**:
+  - ReentrantLock 기반 사용자별 동시성 제어
+  - Fair Lock 정책으로 FIFO 순서 보장
+  - ConcurrentHashMap으로 사용자별 독립적인 Lock 관리
+  - CountDownLatch를 활용한 진정한 동시 실행 시뮬레이션
+  - 데이터 정합성 검증 (잔액 부족, 상한선 초과 케이스)
+
+### Concurrency Test Refactoring (2025-10-24):
+- **Files Modified**: 1개
+  - `PointServiceConcurrencyTest.java` - 테스트 코드 리팩토링
+- **Improvements**:
+  - ✅ 헬퍼 메서드 추출: executeConcurrently(), executeConcurrentlyWithExceptions()
+  - ✅ 공통 로직 분리: awaitAndShutdown() 메서드
+  - ✅ 테스트 상수 명확화: TEST_MAX_POINT, TIMEOUT_SECONDS, 테스트 데이터 상수
+  - ✅ 테스트 격리: AtomicLong USER_ID_GENERATOR로 고유 ID 생성
+  - ✅ 주석 개선: 테스트 설계 의도, 동시성 검증 포인트 명확화
+  - ✅ CountDownLatch 패턴: 모든 스레드가 진정으로 동시에 시작하도록 보장
+- **Test Results**: 4/4 passing (리팩토링 후에도 모든 테스트 통과)
+
 ---
 
 ## Notes & Considerations
@@ -484,8 +561,11 @@ class PointControllerTest {
   - Controller: `@Validated` + `@Positive` (null, 타입, 양수 검증)
   - Service: 검증된 데이터만 처리
 - [x] **Dependency Inversion:** UserPointRepository 인터페이스로 추상화
-- [ ] **Transaction Management:** 향후 in-memory 테이블 일관성 관리 필요
-- [ ] **Thread Safety:** 사용자별 락킹으로 동시성 처리 예정
+- [x] **Transaction Management:** In-memory 환경에서 ReentrantLock으로 원자성 보장
+- [x] **Thread Safety:** 사용자별 Fair ReentrantLock으로 동시성 제어 완료
+  - ConcurrentHashMap<Long, ReentrantLock>로 사용자별 독립적인 Lock 관리
+  - 동일 사용자 요청은 직렬화, 다른 사용자는 병렬 처리
+  - Lock/unlock in try-finally for safety
 
 ### Lessons Learned (Phase 1):
 
@@ -526,6 +606,35 @@ class PointControllerTest {
 - Phase 1의 단순 조회 패턴을 Phase 4에 재사용
 - 아키텍처 일관성 유지
 - 학습 곡선 감소
+
+### Lessons Learned (Phase 5 - Concurrency):
+
+**1. ReentrantLock vs synchronized**
+- synchronized: 메서드/블록 단위, 자동 unlock
+- ReentrantLock: 명시적 lock/unlock, Fair 정책 지원
+- Fair Lock 선택 이유: 충전/사용 순서가 중요하므로 FIFO 보장 필요
+- try-finally 패턴으로 unlock 보장 (예외 발생 시에도 안전)
+
+**2. 사용자별 Lock 전략**
+- ConcurrentHashMap<Long, ReentrantLock>로 사용자별 독립적인 Lock 관리
+- computeIfAbsent()로 Lock 생성 시 동시성 안전성 보장
+- 동일 사용자 요청은 직렬화, 다른 사용자는 병렬 처리로 성능 최적화
+
+**3. CountDownLatch를 활용한 동시성 테스트**
+- startLatch로 모든 스레드가 진정으로 동시에 시작하도록 보장
+- endLatch로 모든 작업 완료 대기
+- 실제 운영 환경의 "동시 요청" 상황을 정확히 재현
+
+**4. 데이터 정합성 검증**
+- 동시 충전: 최종 잔액이 정확한지 검증
+- 잔액 부족 시: 성공/실패 건수와 최종 잔액 정합성 검증
+- 상한선 초과 시: 성공/실패 건수와 최종 잔액 정합성 검증
+- Lock이 없으면 Race Condition 발생, Lock으로 원자성 보장
+
+**5. 테스트 격리의 중요성**
+- AtomicLong USER_ID_GENERATOR로 테스트마다 고유 ID 생성
+- 테스트 간 간섭 방지 (이전 테스트의 잔액이 영향 미치지 않도록)
+- 병렬 테스트 실행 시에도 안전
 
 ### Potential Issues:
 - In-memory tables have simulated latency (200-300ms) - tests will be slower
